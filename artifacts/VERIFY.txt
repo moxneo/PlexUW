@@ -1,8 +1,7 @@
-SHA: fa1705aedb3f1973c77391850c09b762b6db839d
+SHA: 78f96067410d429d138330b79580e304b03291c9
 branch: cursor/live-versions-home-nav-8486
-archive: git archive HEAD excluding artifacts/plexuw-tip.tar.gz, artifacts/TIP-SHA.txt, artifacts/VERIFY.txt
+archive: git archive 78f96067410d429d138330b79580e304b03291c9 (full tip tree)
 desktop/: present
-README.md, SOURCE-STATUS.md, LEGACY-USERSCRIPT.md: present
 
 tar tzf artifacts/plexuw-tip.tar.gz | head -40
 LEGACY-USERSCRIPT.md
@@ -12,6 +11,9 @@ RELEASE-NOTES.md
 SOURCE-STATUS.md
 app.js
 artifacts/
+artifacts/TIP-SHA.txt
+artifacts/VERIFY.txt
+artifacts/plexuw-tip.tar.gz
 artifacts/tip-6b370e9/
 artifacts/tip-6b370e9/SHA256SUMS
 artifacts/tip-6b370e9/SHA256SUMS.upstream
@@ -42,6 +44,3 @@ desktop/shim/test/
 desktop/shim/test/fu7f-modal.test.mjs
 desktop/shim/test/fu7f-nav.test.mjs
 desktop/shim/test/fu7g-back.test.mjs
-desktop/shim/test/fu9p-hydrate.test.mjs
-desktop/shim/test/fu9p-play.test.mjs
-desktop/shim/test/plex-browse.test.mjs
