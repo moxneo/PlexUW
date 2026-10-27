@@ -591,12 +591,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     return box;
   }
 
-  // ---- Details: hero + LEFT Info panel (cast, format, servers) + RIGHT panel (chapters, Up Next)
-  // fu7f LOW-C: only the right panel (Chapters & Up Next) remains.
-  function panelBtn(label, ic, shell) { const b = el('button', 'px-btn pxpbtn'); b.type = 'button'; b.appendChild(icon(ic)); b.appendChild(el('span', null, label));
-    const sync = () => { const o = shell.classList.contains('ropen'); b.classList.toggle('on', o); b.setAttribute('aria-pressed', String(o)); };
-    b.onclick = () => { const o = !shell.classList.contains('ropen'); shell.classList.toggle('ropen', o); sessionStorage.setItem('pxR', o ? '1' : '0'); sync(); }; sync(); shell.addEventListener('pxsync', sync); return b; }
-  function phead(title, shell) { const h = el('div', 'ptabs'); h.appendChild(el('b', null, title)); const x = el('button', 'pxclose', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'Close ' + title); x.onclick = () => { shell.classList.remove('ropen'); sessionStorage.setItem('pxR', '0'); shell.dispatchEvent(new Event('pxsync')); }; h.appendChild(x); return h; }
+  // ---- Details. Chapters & Up Next is a section in the column; the action row sits under it.
   const fmtRes = r => !r ? '' : /^\d+$/.test(r) ? r + 'p' : r.toUpperCase();
   const fmtSize = b => b == null ? '' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB';
   // fu7e: the left Info panel and its Info / ⋯ buttons are gone. Their unique content now
@@ -623,12 +618,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       w.appendChild(b); });
     return w;
   }
-  function sidePanel(it, shell, g0) {
-    const p = el('aside', 'pxpanel right'); p.setAttribute('aria-label', 'Chapters and Up Next'); const g = el('div', 'pxpin'); p.appendChild(g);
-    g.appendChild(phead('Chapters & Up Next', shell));
-    if (it.chapters.length) { g.appendChild(el('h4', null, 'Chapters')); it.chapters.forEach((c, i) => { const r = el('div', 'chrow'); r.appendChild(el('b', 'pxtc', tc(c.startMs))); r.appendChild(el('span', null, c.title || 'Chapter ' + (i + 1))); g.appendChild(r); }); }
-    if (it.markers.length) { const m = el('p', 'muted small'); m.textContent = it.markers.map(x => `${x.kind === 'credits' ? 'Credits' : 'Intro'} ${tc(x.startMs)}–${tc(x.endMs)}`).join(' · '); g.appendChild(m); }
-    g.appendChild(el('h4', null, 'Up Next')); const up = el('div', 'pxuplist'); g.appendChild(up); const w = loading(up);
+  function chaptersSection(it, g0) {
+    const sec = el('section', 'pxchup'); sec.appendChild(el('h2', 'pxrowh', 'Chapters & Up Next'));
+    const chapters = it.chapters || [], markers = it.markers || [];
+    if (chapters.length) { sec.appendChild(el('h4', null, 'Chapters')); chapters.forEach((c, i) => { const r = el('div', 'chrow'); r.appendChild(el('b', 'pxtc', tc(c.startMs))); r.appendChild(el('span', null, c.title || 'Chapter ' + (i + 1))); sec.appendChild(r); }); }
+    if (markers.length) { const m = el('p', 'muted small'); m.textContent = markers.map(x => `${x.kind === 'credits' ? 'Credits' : 'Intro'} ${tc(x.startMs)}–${tc(x.endMs)}`).join(' · '); sec.appendChild(m); }
+    sec.appendChild(el('h4', null, 'Up Next')); const up = el('div', 'pxuplist'); sec.appendChild(up); const w = loading(up);
     const add = list => { w.remove(); if (!list.length) { up.appendChild(el('p', 'muted small', 'Nothing queued.')); return; }
       list.slice(0, 12).forEach(x => { const a = el('a', 'up'); a.href = '#px/item/' + x.id; const pp = el('div', 'poster'); const src = img(x.thumb || x.art, 224, 126); if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.src = src; i.onerror = () => i.remove(); pp.appendChild(i); } a.appendChild(pp);
         const t = el('div'); t.appendChild(el('b', null, x.kind === 'episode' ? `E${x.index ?? '?'} · ${x.title}` : x.title)); t.appendChild(el('div', 'muted small', x.kind === 'episode' ? (x.grandparentTitle || '') : (x.year ?? ''))); a.appendChild(t); up.appendChild(a); }); };
@@ -636,7 +631,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       : it.kind === 'season' ? invoke('browse_children', { id: it.id }).then(k => k.filter(x => !x.watched))
       : invoke('browse_home').then(v => dropMusic(v.onDeck).filter(x => x.id !== it.id));
     q.then(l => { if (gen === g0) add(l); }).catch(() => { if (gen === g0) add([]); });
-    return p;
+    return sec;
   }
   function startTitlePlay(it, fromStart) {
     if (!it || !it.id) return;
@@ -777,9 +772,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const sec = sections.find(s => s.kind === ({ movie: 'movie', show: 'show', season: 'show', episode: 'show' }[it.kind]));
     mark(sec ? 'sec/' + sec.id : 'item');
     view.textContent = '';
-    const shell = el('div', 'pxshell'); if (sessionStorage.getItem('pxR') === '1') shell.classList.add('ropen');
+    const shell = el('div', 'pxshell');
     const mid = el('div', 'pxcenter');
-    shell.appendChild(mid); shell.appendChild(sidePanel(it, shell, g));
+    shell.appendChild(mid);
     const d = el('div', 'pxdet');
     const bd = backdrop(it); if (bd) view.appendChild(bd);
     const body = el('div', 'pxdbody'); d.appendChild(body);
@@ -817,7 +812,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     crow('Guest stars', guests.slice(0, 4).map(c => c.name).join(', '));
     crow(it.directors.length > 1 ? 'Directors' : 'Director', it.directors.join(', ')); crow(it.writers.length > 1 ? 'Writers' : 'Writer', it.writers.join(', '));
     if (cr.childNodes.length) tx.appendChild(cr);
-    const acts = el('div', 'pxacts'); acts.appendChild(panelBtn('Chapters & Up Next', 'list', shell)); tx.appendChild(acts);
+    tx.appendChild(chaptersSection(it, g));
     if (it.kind === 'movie' || it.kind === 'episode') tx.appendChild(playRow(it));
     else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn()); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
     if (it.cast.length) { const cs = el('section', 'pxheads'); cs.appendChild(el('h2', 'pxrowh', it.kind === 'episode' ? 'Cast & guest stars' : 'Credits')); const r = el('div', 'pxheadrow');
@@ -939,7 +934,6 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const nd = navInput(e); if (nd && !pm.isOpen && pk.hidden && navGo(nd)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); e.stopImmediatePropagation(); if (pk.hidden) pkOpen(); else if (Date.now() - pkAt > 400) pkClose(); }
     else if (e.key === 'Escape' && !pk.hidden) { e.preventDefault(); e.stopImmediatePropagation(); pkClose(); }
-    else if (e.key === 'Escape' && String(location.hash || '').indexOf('#px/') === 0) { const sh = document.querySelector('.pxshell.ropen'); if (sh) { e.preventDefault(); e.stopImmediatePropagation(); sh.classList.remove('ropen'); sessionStorage.setItem('pxR', '0'); sh.dispatchEvent(new Event('pxsync')); } }
   }, true);
   addEventListener('click', e => { if (on && e.target.closest && e.target.closest('#askBtn')) { e.preventDefault(); e.stopImmediatePropagation(); pkOpen(); } }, true);
   main.addEventListener('scroll', () => { if (!swap.active) sm.save(); if (onScroll) onScroll(); }, { passive: true });

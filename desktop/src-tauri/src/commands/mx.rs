@@ -782,6 +782,11 @@ pub async fn person(p: &Arc<Plex>, id: &str) -> Result<browse::PersonView, Strin
             if view.birthplace.is_empty() { view.birthplace = place; }
         }
     }
+    // PMS summary first. One Discover GET only when that summary is empty and the key
+    // is a 24-hex tagKey. Account token stays in the header; a miss leaves the bio blank.
+    if view.bio.is_empty() && browse::discover_person_key(&key) {
+        if let Some(bio) = discover_bio(p, &key).await { view.bio = bio; }
+    }
     let mut rows = vec![];
     for (rank, s, v) in &m.got { rows.extend(rows_of(metas(v), *rank, s, &img, p, ep)); }
     view.sources = mg::sources_of(m.got.iter().filter(|(_, _, v)| metas(v).next().is_some()).map(|(_, s, _)| s.name.as_str()));
@@ -789,6 +794,17 @@ pub async fn person(p: &Arc<Plex>, id: &str) -> Result<browse::PersonView, Strin
     if view.name.is_empty() && view.items.is_empty() { return Err("not found".into()); }
     if p.slots.epoch() != ep || !p.images.commit(img) { return Err("stale".into()); }
     Ok(view)
+}
+
+async fn discover_bio(p: &Plex, key: &str) -> Option<String> {
+    if !browse::discover_person_key(key) { return None; }
+    let url = url::Url::parse(&format!("https://discover.provider.plex.tv/library/people/{key}")).ok()?;
+    let r = p.egress.send(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::Account, HARD).await.ok()?;
+    if !(200..300).contains(&r.status) { return None; }
+    let v: Value = serde_json::from_slice(&r.body).ok()?;
+    let mc = v.get("MediaContainer").unwrap_or(&v);
+    let bio = browse::person_summary(mc);
+    (!bio.is_empty()).then_some(bio)
 }
 
 /// Related row for an item: `/related` hubs from this server's copy and every other

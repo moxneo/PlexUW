@@ -1,7 +1,8 @@
 //! The single egress function (§6a H2). Every outbound request goes through
 //! `Egress::send`, which enforces:
 //! - https only, no userinfo, no redirects (3xx is an error, never followed);
-//! - the account token goes only to plex.tv / clients.plex.tv;
+//! - the account token goes only to plex.tv / clients.plex.tv, plus one GET of a
+//!   person biography at discover.provider.plex.tv;
 //! - a server token for machine M goes only to hosts bound to M (exact host:port
 //!   from M's resources connections, or a manual host that proved it is M);
 //! - unauthenticated requests: PIN endpoints on plex.tv, and `/identity` on bound
@@ -15,6 +16,15 @@ use std::time::Duration;
 use url::Url;
 
 pub const ACCOUNT_HOSTS: &[&str] = &["plex.tv", "clients.plex.tv"];
+
+/// One read-only person biography. Exact host, never a general Discover allowlist.
+pub const DISCOVER_HOST: &str = "discover.provider.plex.tv";
+
+/// `/library/people/<24 lowercase hex>` and nothing else.
+pub fn discover_person_path(p: &str) -> bool {
+    let Some(k) = p.strip_prefix("/library/people/") else { return false };
+    k.len() == 24 && !k.contains('/') && k.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 
 #[derive(Clone, Debug, PartialEq)]
 /// `PublicImage`: token-less fetch of a cast photo from the plex.tv CDN (Sentinel, round 5).
@@ -61,6 +71,10 @@ pub fn host_port(u: &Url) -> Option<String> {
 fn is_account_host(u: &Url) -> bool {
     u.port_or_known_default() == Some(443)
         && u.host_str().map(|h| ACCOUNT_HOSTS.contains(&h.to_ascii_lowercase().as_str())).unwrap_or(false)
+}
+
+fn is_discover_host(u: &Url) -> bool {
+    u.port_or_known_default() == Some(443) && u.host_str() == Some(DISCOVER_HOST)
 }
 
 fn pin_path(p: &str) -> bool {
@@ -131,10 +145,15 @@ pub fn check(u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
     let p = u.path();
     match cred {
         Cred::Account => {
-            if !is_account_host(u) { return Err(Deny::Host); }
-            if !account_path(p) { return Err(Deny::Path); }
-            // /api/v2/user is the paired account card only: no query, no fragment, no home-user.
-            if p == "/api/v2/user" && (u.query().is_some() || u.fragment().is_some()) { return Err(Deny::Path); }
+            if is_discover_host(u) {
+                // Header-only. A query or fragment would put the account token on the URL.
+                if u.query().is_some() || u.fragment().is_some() || !discover_person_path(p) { return Err(Deny::Path); }
+            } else {
+                if !is_account_host(u) { return Err(Deny::Host); }
+                if !account_path(p) { return Err(Deny::Path); }
+                // /api/v2/user is the paired account card only: no query, no fragment, no home-user.
+                if p == "/api/v2/user" && (u.query().is_some() || u.fragment().is_some()) { return Err(Deny::Path); }
+            }
         }
         Cred::Server(m) => {
             if !b.servers.get(m).map(|s| s.contains(&hp)).unwrap_or(false) { return Err(Deny::Host); }
@@ -278,6 +297,18 @@ mod t {
         assert_eq!(check(&u("https://plex.tv/api/v2/user#frag"), &Cred::Account, &b()), Err(Deny::Path));
         assert_eq!(check(&u("https://plex.tv/api/v2/home/users"), &Cred::Account, &b()), Err(Deny::Path));
         assert_eq!(check(&u("https://plex.tv/api/v2/user/sharing"), &Cred::Account, &b()), Err(Deny::Path));
+        let person = "https://discover.provider.plex.tv/library/people/5d77680000000000000000a0";
+        assert_eq!(check(&u(person), &Cred::Account, &b()), Ok(()));
+        assert_eq!(check(&u(&format!("{person}?includeSubscriptions=1")), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u(&format!("{person}#frag")), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/5D77680000000000000000A0"), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/501"), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/5d77680000000000000000"), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/metadata/1"), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.plex.tv/library/people/5d77680000000000000000a0"), &Cred::Account, &b()), Err(Deny::Host));
+        assert_eq!(check(&u("https://discover.provider.plex.tv:8443/library/people/5d77680000000000000000a0"), &Cred::Account, &b()), Err(Deny::Host));
+        assert_eq!(check(&u(person), &Cred::None, &b()), Err(Deny::Host));
+        assert_eq!(check(&u(person), &Cred::Server("M".into()), &b()), Err(Deny::Host));
         assert!(server_path("/:/scrobble", Some("identifier=com.plexapp.plugins.library&key=%2Flibrary%2Fmetadata%2F1003")));
         assert!(server_path("/:/unscrobble", Some("identifier=com.plexapp.plugins.library&key=%2Flibrary%2Fmetadata%2F1003")));
         assert!(!server_path("/:/scrobble", Some("identifier=com.plexapp.plugins.library&key=%2Flibrary%2Fmetadata%2F1003&X-Plex-Token=sekrit")));

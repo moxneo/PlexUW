@@ -50,6 +50,8 @@ pub fn person_key(tag_key: &str, tag_id: &str) -> Option<String> {
 }
 /// True for a tagKey-shaped key (cross-server); numeric tag ids are per server.
 pub fn person_key_global(k: &str) -> bool { k.len() >= 16 && !k.bytes().all(|b| b.is_ascii_digit()) }
+/// Discover people biographies are addressed by exactly 24 lowercase hex characters.
+pub fn discover_person_key(k: &str) -> bool { super::egress::discover_person_path(&format!("/library/people/{k}")) }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sort { Title, Added, Year, Rating }
@@ -204,13 +206,18 @@ pub struct Person {
 #[serde(rename_all = "camelCase")]
 pub struct PersonView { pub name: String, pub thumb: Option<String>, pub bio: String, pub born: String, pub birthplace: String, pub items: Vec<Item>, pub sources: Vec<String>, pub pending: bool }
 
+fn person_dir(mc: &Value) -> Option<&Value> {
+    mc.get("Directory").and_then(|a| a.get(0)).or_else(|| mc.get("Metadata").and_then(|a| a.get(0)))
+}
+/// Biography text only. Empty when the server (or Discover) sent none.
+pub fn person_summary(mc: &Value) -> String { person_dir(mc).map(|d| s(d, "summary", 4000)).unwrap_or_default() }
 /// Name/photo/bio from a `/library/people/<key>` reply (Directory or Metadata entry).
 pub fn person_detail(mc: &Value, mid: &str, img: &Images) -> Option<(String, Option<String>, String, String, String)> {
-    let d = mc.get("Directory").and_then(|a| a.get(0)).or_else(|| mc.get("Metadata").and_then(|a| a.get(0)))?;
+    let d = person_dir(mc)?;
     let name = { let t = s(d, "tag", 80); if t.is_empty() { s(d, "title", 80) } else { t } };
     let thumb = d.get("thumb").and_then(Value::as_str).and_then(|p| if p.starts_with('/') { img.register(mid, p) } else { img.register_public(p) });
     let born = { let b = s(d, "birthDate", 10); if b.len() == 10 && b.bytes().all(|c| c.is_ascii_digit() || c == b'-') { b } else { String::new() } };
-    Some((name, thumb, s(d, "summary", 4000), born, s(d, "birthPlace", 120)))
+    Some((name, thumb, person_summary(mc), born, s(d, "birthPlace", 120)))
 }
 /// File format for the Info panel. Deliberately no Part.file (server filesystem path)
 /// and no Part.key (a server URL path).
@@ -534,6 +541,10 @@ mod t {
         assert_eq!(person_key("5D7768FE0000000000000001", ""), None, "uppercase/odd keys refused");
         assert_eq!(person_key("abc", "x"), None);
         assert!(person_key_global("5d7768fe0000000000000001") && !person_key_global("12"));
+        assert!(discover_person_key("5d7768fe0000000000000001"));
+        assert!(!discover_person_key("5d7768fe0000000000000001ff") && !discover_person_key("5D7768FE0000000000000001") && !discover_person_key("12"));
+        assert_eq!(person_summary(&serde_json::json!({"Directory":[{"summary":"Bio text"}]})), "Bio text");
+        assert_eq!(person_summary(&serde_json::json!({"Metadata":[{"title":"X"}]})), "");
         // the egress allowlist refuses anything but the two people shapes
         for bad in ["/library/people/../sections", "/library/people/x", "/library/people/12/media/1", "/library/metadata/1/relatedx"] {
             assert!(!super::super::egress::server_path(bad, None), "{bad}");

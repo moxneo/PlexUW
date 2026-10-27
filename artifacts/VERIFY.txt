@@ -1,7 +1,4 @@
-SHA: 0a3f01af4f0e4ecd9145205a9e673dc8898fecf6
-branch: cursor/next-push-ui-15ca (Origin PR#3; stacked on cursor/live-versions-home-nav-8486 @ 78f9606)
-archive: tip.bundle / plexuw-tip.tar.gz from Foreman @ /home/box/plexuw-artifacts/0a3f01af/ (not committed into GitHub)
-desktop/: present
-README.md, SOURCE-STATUS.md, LEGACY-USERSCRIPT.md: present
-
-Synced: 2026-10-27 ~12:50 AM America/New_York
+TIP-SHA: 1ec42970d621e6b689206e8345a76208c9987b80
+Tree is an Origin tip sync (Origin PR#3 tip after 0a3f01af).
+desktop/ (Rust/Tauri) present.
+Nested tip tarball (plexuw-tip.tar.gz) is NOT in the GitHub tree; GitHub holds the tip tree only.

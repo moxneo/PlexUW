@@ -56,6 +56,20 @@ fn profile_note(headers: &[(&str, String)]) -> &'static str {
 
 fn json(status: u16, s: String) -> Result<Resp, String> { Ok(Resp { status, body: s.into_bytes(), content_type: Some("application/json".into()), content_range: None }) }
 
+/// Discover biography fixture. PMS summary for tag_key(0) is empty, so that one key
+/// is the only person whose bio must come from this GET. Any other key is a marker
+/// the person page must not show (it would mean a PMS summary was replaced).
+fn discover_person_body(path: &str) -> Option<String> {
+    let k = path.strip_prefix("/library/people/")?;
+    if !super::egress::discover_person_path(path) { return None; }
+    let bio = if k == lib::tag_key(0) {
+        "Avery Lane is a fictional fixture performer whose biography lives on Discover. Every credit on this page is invented test data; no real person is described."
+    } else {
+        "DISCOVER-ONLY-POISON"
+    };
+    Some(serde_json::json!({"MediaContainer": {"Directory": [{"summary": bio}]}}).to_string())
+}
+
 impl Transport for FixtureTransport {
     fn send(&self, r: Req) -> Fut<'_> {
         Box::pin(async move {
@@ -138,6 +152,14 @@ impl Transport for FixtureTransport {
                         "/people/big.jpg" => img("image/jpeg", 5 * 1024 * 1024 + 1),
                         "/users/moxneo.jpg" => img("image/jpeg", 64),
                         _ => json(404, "{}".into()),
+                    }
+                }
+                (Method::Get, "discover.provider.plex.tv", p) => {
+                    if tok.as_deref() != Some("acct") { return json(401, "{}".into()); }
+                    if r.url.query().is_some() || r.url.fragment().is_some() { return json(400, "{}".into()); }
+                    match discover_person_body(p) {
+                        Some(body) => json(200, body),
+                        None => json(404, "{}".into()),
                     }
                 }
                 (Method::Get, "plex.tv", "/api/v2/user") => {
@@ -479,7 +501,9 @@ pub mod lib {
                     if j % 2 == 0 { m.push(show(j % SHOWS.len())); }
                     return ok(mc(m, json!({})));
                 }
-                let mut d = json!({"tag": name, "id": 501 + j, "summary": format!("{name} is a fictional fixture performer. Every credit on this page is invented test data; no real person is described."),
+                // tag_key(0) has no PMS biography, so the person page must read Discover.
+                let summary = if j == 0 { String::new() } else { format!("{name} is a fictional fixture performer. Every credit on this page is invented test data; no real person is described.") };
+                let mut d = json!({"tag": name, "id": 501 + j, "summary": summary,
                     "birthDate": format!("19{}-0{}-1{}", 60 + j * 4, 1 + j, j), "birthPlace": (["Port Ellis, Fixtureland","Kestrel Bay","Northlight","Harbor City","Pine Hollow","Static Point"][j])});
                 if !thumb.is_empty() { d["thumb"] = json!(thumb); }
                 ok(json!({"MediaContainer": {"size": 1, "Directory": [d]}}))

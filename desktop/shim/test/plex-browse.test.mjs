@@ -81,7 +81,16 @@ test('fu7e appendGrid: scrolling appends pages and never remounts existing tiles
   ag2.ensure(5); await ag2.load(0); assert.equal(ag2.pages.size, 0);
 });
 test('fu7e details: no Info panel, no ⋯ button; one Versions list; person + related wired', () => {
-  assert.doesNotMatch(src, /panelBtn\('Info'/);
+  assert.doesNotMatch(src, /panelBtn\(/);
+  assert.match(src, /function chaptersSection\(it, g0\)/);
+  assert.match(src, /el\('h2', 'pxrowh', 'Chapters & Up Next'\)/);
+  assert.match(src, /el\('p', 'pxsum pxbio', pv\.bio\)/);
+  const itemFn = src.slice(src.indexOf('async function item('), src.indexOf('async function person('));
+  const chAt = itemFn.indexOf('chaptersSection(it, g)');
+  const playAt = itemFn.indexOf('playRow(it)');
+  const credAt = itemFn.indexOf("el('h2', 'pxrowh'");
+  assert.ok(chAt !== -1 && playAt > chAt && credAt > playAt, 'Play row sits under Chapters & Up Next and before Credits');
+  assert.doesNotMatch(itemFn, /panelBtn\(|sidePanel\(|pxR/);
   assert.doesNotMatch(src, /rb\('more'/);
   assert.doesNotMatch(src, /infoPanel\(/);
   assert.equal((src.match(/versionsList\(it\)\)/g) || []).length, 1, 'versions list rendered once (one Preferred)');
@@ -109,7 +118,7 @@ test('late versions: item page re-reads on plex-merge-fill and clears the spinne
   assert.match(src, /· owned/);
   assert.match(src, /· shared/);
   assert.match(src, /invoke\('version_pick', \{ id: v\.id \}\)/);
-  assert.doesNotMatch(src.slice(src.indexOf('function versionsList'), src.indexOf('function sidePanel')), /innerHTML/);
+  assert.doesNotMatch(src.slice(src.indexOf('function versionsList'), src.indexOf('function chaptersSection')), /innerHTML/);
 });
 test('home hero is continue-watching chrome and is not repeated as a strip card', () => {
   const home = src.slice(src.indexOf('async function home('), src.indexOf('async function section('));

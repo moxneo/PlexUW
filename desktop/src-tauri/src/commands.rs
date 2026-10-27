@@ -1109,7 +1109,8 @@ mod t {
         use secrecy::SecretString;
         let dir = std::env::temp_dir().join(format!("plexuw-fu7e-{}", std::process::id()));
         let store: Arc<dyn SecretStore> = Arc::new(MemStore::default());
-        let e = Arc::new(Egress::new(Arc::new(FixtureTransport { second_online: true, ..Default::default() }), store, "cid".into()));
+        let ft = Arc::new(FixtureTransport { second_online: true, ..Default::default() });
+        let e = Arc::new(Egress::new(ft.clone(), store, "cid".into()));
         api::store_account_token(&e, &SecretString::from(FIX_ACCOUNT_TOKEN.to_string())).unwrap();
         let p = Arc::new(Plex {
             egress: e.clone(), servers: Mutex::new(vec![]), manual: Mutex::new(None), gen: AtomicU64::new(0),
@@ -1128,7 +1129,15 @@ mod t {
         assert_eq!(pid.len(), 24);
         let pv = mx::person(&p, &pid).await.unwrap();
         assert_eq!(pv.name, "Avery Lane");
-        assert!(pv.bio.contains("fictional") && pv.born.len() == 10 && pv.thumb.as_ref().map(|t| t.len()) == Some(32));
+        assert!(pv.bio.contains("biography lives on Discover") && pv.bio.contains("fictional"), "{}", pv.bio);
+        assert!(pv.born.len() == 10 && pv.thumb.as_ref().map(|t| t.len()) == Some(32));
+        let pid2 = it.cast[1].id.clone().expect("second cast chip");
+        let pv2 = mx::person(&p, &pid2).await.unwrap();
+        assert_eq!(pv2.name, "Jun Okafor");
+        assert!(pv2.bio.contains("fictional fixture performer") && !pv2.bio.contains("biography lives on Discover") && !pv2.bio.contains("DISCOVER-ONLY"), "{}", pv2.bio);
+        let disc: Vec<_> = ft.log().into_iter().filter(|l| l.contains("discover.provider.plex.tv")).collect();
+        assert_eq!(disc.len(), 1, "one Discover read, and only for the empty PMS summary: {disc:?}");
+        assert!(disc[0].contains("token=acct") && !disc[0].contains('?'), "header-only: {disc:?}");
         assert!(pv.sources.len() >= 2, "tagKey fans out across servers: {:?}", pv.sources);
         let mut seen = std::collections::HashSet::new();
         for i in &pv.items { assert!(seen.insert(i.title.clone()), "dupe {} in filmography", i.title); assert!(["movie", "show"].contains(&i.kind.as_str())); }
