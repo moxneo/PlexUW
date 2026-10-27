@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-section-hubs"
+description = "Enables the browse_section_hubs command without any pre-configured scope."
+commands.allow = ["browse_section_hubs"]
+
+[[permission]]
+identifier = "deny-browse-section-hubs"
+description = "Denies the browse_section_hubs command without any pre-configured scope."
+commands.deny = ["browse_section_hubs"]

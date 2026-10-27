@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Sentinel M2 condition: lint-shim.sh runs on every commit. Install with:
+#   ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+bash "$root/desktop/shim/lint-shim.sh"

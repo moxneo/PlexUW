@@ -1,0 +1,187 @@
+=== fu9m LINUX RELEASE start Sat, 24 Oct 2026 22:41:24 -0400 HEAD=07e369e (07e369e4b9d38d898c2b34fd440299203b7400a9) parent=28cb8e156fbc8310651d66b7ff01284b4ef56a69 PLEXUW_MOCK=<unset> ===
+lint-shim: ok
+synced web UI -> /workspace/plexuw-fu7i/desktop/dist
+DIST_FU9M_OK preflight + Escape always-leave + mediaDur no-10 + KEEP
+TAP version 13
+# Subtest: fu9g MUST-2: always sync buildPersonBioBlock; no polish-remove
+ok 1 - fu9g MUST-2: always sync buildPersonBioBlock; no polish-remove
+  ---
+  duration_ms: 1.545296
+  ...
+# Subtest: fu9g MUST-2: jsdom DOM — button.pxbiomore More under wrap after bio
+ok 2 - fu9g MUST-2: jsdom DOM — button.pxbiomore More under wrap after bio
+  ---
+  duration_ms: 58.618639
+  ...
+# Subtest: fu9g KEEP: CSS hard-visible More + person row + single-flight + Credits hover
+ok 3 - fu9g KEEP: CSS hard-visible More + person row + single-flight + Credits hover
+  ---
+  duration_ms: 0.587667
+  ...
+# Subtest: fu9i MUST1: no Music nav / settings / musicSections
+ok 4 - fu9i MUST1: no Music nav / settings / musicSections
+  ---
+  duration_ms: 1.765033
+  ...
+# Subtest: fu9i MUST2: cast hover stronger than scale(1.05)
+ok 5 - fu9i MUST2: cast hover stronger than scale(1.05)
+  ---
+  duration_ms: 0.55114
+  ...
+# Subtest: fu9i MUST3: play_start wiring + opaque media URL
+ok 6 - fu9i MUST3: play_start wiring + opaque media URL
+  ---
+  duration_ms: 0.31874
+  ...
+# Subtest: fu9j MUST3: direct-or-hls + no silent sample leave-in
+ok 7 - fu9j MUST3: direct-or-hls + no silent sample leave-in
+  ---
+  duration_ms: 0.376418
+  ...
+# Subtest: fu9k KEEP MUST1 Music-gone
+ok 8 - fu9k KEEP MUST1 Music-gone
+  ---
+  duration_ms: 1.387249
+  ...
+# Subtest: fu9k KEEP MUST2 cast hover
+ok 9 - fu9k KEEP MUST2 cast hover
+  ---
+  duration_ms: 0.216633
+  ...
+# Subtest: fu9k A: HLS uses opaque_get invoke loader (no XHR stuck on plexuw://)
+ok 10 - fu9k A: HLS uses opaque_get invoke loader (no XHR stuck on plexuw://)
+  ---
+  duration_ms: 0.221177
+  ...
+# Subtest: fu9k B: duration chrome uses mediaDur / durationMs — no fake 10s on plex clearVid
+ok 11 - fu9k B: duration chrome uses mediaDur / durationMs — no fake 10s on plex clearVid
+  ---
+  duration_ms: 0.284981
+  ...
+# Subtest: fu9k C: plex play never lands on \#player/0 Neon Meridian demo
+ok 12 - fu9k C: plex play never lands on \#player/0 Neon Meridian demo
+  ---
+  duration_ms: 0.351248
+  ...
+# Subtest: fu9k: play error chrome retained
+ok 13 - fu9k: play error chrome retained
+  ---
+  duration_ms: 0.218839
+  ...
+# Subtest: fu9l KEEP MUST1 Music-gone
+ok 14 - fu9l KEEP MUST1 Music-gone
+  ---
+  duration_ms: 1.52072
+  ...
+# Subtest: fu9l KEEP MUST2 cast hover
+ok 15 - fu9l KEEP MUST2 cast hover
+  ---
+  duration_ms: 0.20648
+  ...
+# Subtest: fu9l HLS force-transcode: directPlay=0&directStream=0 + universal params
+ok 16 - fu9l HLS force-transcode: directPlay=0&directStream=0 + universal params
+  ---
+  duration_ms: 0.472134
+  ...
+# Subtest: fu9l mediaDur plex-first: never sample vid.duration when pxPlayCtx.plexId
+ok 17 - fu9l mediaDur plex-first: never sample vid.duration when pxPlayCtx.plexId
+  ---
+  duration_ms: 0.372079
+  ...
+# Subtest: fu9l Escape/back → goBackFromPlayer → returnHash \#px/; never Neon \#player/0
+ok 18 - fu9l Escape/back → goBackFromPlayer → returnHash \#px/; never Neon \#player/0
+  ---
+  duration_ms: 0.585203
+  ...
+# Subtest: fu9l error chrome: status class only, no tokens/URLs
+ok 19 - fu9l error chrome: status class only, no tokens/URLs
+  ---
+  duration_ms: 0.300283
+  ...
+# Subtest: fu9m KEEP MUST1 Music-gone
+ok 20 - fu9m KEEP MUST1 Music-gone
+  ---
+  duration_ms: 1.637342
+  ...
+# Subtest: fu9m KEEP MUST2 cast hover
+ok 21 - fu9m KEEP MUST2 cast hover
+  ---
+  duration_ms: 0.182618
+  ...
+# Subtest: fu9m Escape always leave plex → goBackFromPlayer (never vis hide-chrome)
+ok 22 - fu9m Escape always leave plex → goBackFromPlayer (never vis hide-chrome)
+  ---
+  duration_ms: 0.505388
+  ...
+# Subtest: fu9m mediaDur: no hardcoded return 10; plex hash/plexId → 0/--:--:--
+ok 23 - fu9m mediaDur: no hardcoded return 10; plex hash/plexId → 0/--:--:--
+  ---
+  duration_ms: 0.424559
+  ...
+# Subtest: fu9m play_start preflight start.m3u8 before hls success
+ok 24 - fu9m play_start preflight start.m3u8 before hls success
+  ---
+  duration_ms: 0.505611
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 511.714397
+DIST_HASH_PREBUILD=6b26c745c7eadc37935ea6d324a616ba25c12d439a82e7f0fbbb26ec6c2fd1cb
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `bash ./sync-web.sh`
+lint-shim: ok
+synced web UI -> /workspace/plexuw-fu7i/desktop/dist
+   Compiling plexuw v0.1.0 (/workspace/plexuw-fu7i/desktop/src-tauri)
+warning: function `proxy_request` is never used
+   --> src/commands.rs:776:14
+    |
+776 | pub async fn proxy_request(p: &Arc<Plex>, method: &str, uri: &str, origin: Option<&str>, referer: Option<&str>) -> ProxyResp {
+    |              ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `build_hls_start_stored` is never used
+   --> src/commands.rs:898:4
+    |
+898 | fn build_hls_start_stored(rk: u64, media_idx: usize) -> Option<String> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `plexuw` (lib) generated 2 warnings
+    Finished `release` profile [optimized] target(s) in 1m 49s
+       Built application at: /workspace/plexuw-fu7i/desktop/src-tauri/target/release/plexuw
+        Info Patching /workspace/plexuw-fu7i/desktop/src-tauri/target/release/plexuw with bundle type information: deb
+    Bundling PlexUW_0.1.0_amd64.deb (/workspace/plexuw-fu7i/desktop/src-tauri/target/release/bundle/deb/PlexUW_0.1.0_amd64.deb)
+        Info Patching /workspace/plexuw-fu7i/desktop/src-tauri/target/release/plexuw with bundle type information: appimage
+    Bundling PlexUW_0.1.0_amd64.AppImage (/workspace/plexuw-fu7i/desktop/src-tauri/target/release/bundle/appimage/PlexUW_0.1.0_amd64.AppImage)
+    Finished 2 bundles at:
+        /workspace/plexuw-fu7i/desktop/src-tauri/target/release/bundle/deb/PlexUW_0.1.0_amd64.deb (5.85 MiB)
+        /workspace/plexuw-fu7i/desktop/src-tauri/target/release/bundle/appimage/PlexUW_0.1.0_amd64.AppImage (180.42 MiB)
+
+APPIMAGE_ELF_OK
+SIDECAR_FROM_APPDIR
+SIDECAR_MATCH_APPDIR 044ca34980d5c3b1a634ae6450b57c648ecc3d287bdba1f23a0dd41e5117efd7
+label=linux mock_string_hits=0
+GATE-B PASS linux
+label=appimage mock_string_hits=0
+GATE-B PASS appimage
+label=deb mock_string_hits=0
+GATE-B PASS deb
+plexuw  044ca34980d5c3b1a634ae6450b57c648ecc3d287bdba1f23a0dd41e5117efd7
+PlexUW_0.1.0_amd64.deb  b786ef3a859f2f682bbdf2cfd2c13c9eb20c735e2574a33c4c63c2b7d78e7968
+PlexUW_0.1.0_amd64.AppImage  c73a6c048230058f1990570b28f39b82b7563513c997d7cb4c8e6026a5bd9480
+DIST_FILES 6b26c745c7eadc37935ea6d324a616ba25c12d439a82e7f0fbbb26ec6c2fd1cb
+ABOUT_EXPECT Build=07e369e full=07e369e4b9d38d898c2b34fd440299203b7400a9
+BUILD_DONE Sat, 24 Oct 2026 22:44:30 -0400
+total 201792
+drwxr-xr-x  2 box box      4096 Oct 24 22:44 .
+drwxr-xr-x 11 box box      4096 Oct 24 22:44 ..
+-rwxr-xr-x  1 box box 189188600 Oct 24 22:44 PlexUW_0.1.0_amd64.AppImage
+-rw-r--r--  1 box box   6139238 Oct 24 22:44 PlexUW_0.1.0_amd64.deb
+-rwxr-xr-x  1 box box  11295433 Oct 24 22:44 plexuw
+exit 0 at Sat, 24 Oct 2026 22:44:30 -0400

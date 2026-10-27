@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PlexUW — prototype v4.1</title><link rel="icon" href="favicon/favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon/favicon.ico" sizes="16x16 32x32 48x48"><link rel="apple-touch-icon" href="favicon/apple-touch-icon.png"><link rel="manifest" href="favicon/site.webmanifest"><link rel="stylesheet" href="styles.css?v=13"><link rel="stylesheet" href="desktop.css"></head>
+<body>
+<div id="app">
+ <section id="home" class="screen">
+  <aside class="sidebar">
+   <div class="brand"><button id="navToggle" class="tb navtog" title="Collapse sidebar ([)" aria-label="Collapse sidebar"><svg class="ic"><use href="assets/icons.svg#sidebar"/></svg></button><span class="logo"><svg class="ic"><use href="assets/icons.svg#play"/></svg></span>PlexUW</div>
+   <nav id="nav"></nav>
+   <div class="profile"><span class="av">S</span><span class="pn">Scott<small class="muted">profile and settings</small></span></div>
+   <div class="side-foot muted">Mock server · offline · <span id="total"></span> titles</div>
+  </aside>
+  <main class="home-main" id="main">
+   <header class="topbar">
+    <button id="askBtn" class="askbtn"><svg class="ic"><use href="assets/icons.svg#search"/></svg><span>Ask your library…</span><kbd>Ctrl K</kbd></button>
+    <button id="voiceBtn" class="voicebtn" title="Voice assistant (V)"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span>Voice</span></button>
+    <div id="activeChips" class="chips"></div>
+   </header>
+   <div id="homeView">
+    <h2 class="row-title">Continue Watching</h2><div id="continue" class="row hero"></div>
+    <h2 class="row-title">Next Up</h2><div id="nextup" class="row hero"></div>
+    <h2 class="row-title">Next Up · TV</h2><div id="tvnext" class="row hero"></div>
+    <h2 class="row-title">For you</h2><div id="foryou" class="row"></div>
+    <h2 class="row-title">Recently Added <span class="muted" id="count"></span></h2><div id="grid" class="grid"></div>
+   </div>
+   <div id="detView" hidden></div>
+   <div id="tvView" hidden></div>
+   <div id="musicView" hidden></div>
+   <div id="setView" hidden>
+    <h2 class="row-title">Settings</h2>
+    <section class="setcard" id="playSet"><h3>Playback</h3>
+     <label class="switch"><input type="checkbox" id="apSet" data-ap-input> <span>Autoplay next episode <i class="muted small">TV only · never across shows · default on</i></span></label>
+    </section>
+    <section class="setcard" id="voiceSet"><h3>Voice assistant <span class="muted small">what happens to playback while listening</span></h3>
+     <div class="seg" id="voiceMode" role="radiogroup">
+      <label><input type="radio" name="vm" value="pause"><span><b>Pause</b><i class="muted small">Default · resumes on close</i></span></label>
+      <label><input type="radio" name="vm" value="duck"><span><b>Lower volume to 20%</b><i class="muted small">Restores volume on close</i></span></label>
+      <label><input type="radio" name="vm" value="none"><span><b>Do nothing</b><i class="muted small">Still dims and shows the overlay</i></span></label></div>
+     <p class="note small">Saved in localStorage. UX mock: the overlay shows a scripted transcript; no microphone, Web Speech or network is used.</p>
+    </section>
+    <section class="setcard" id="aiProvider"><h3>AI Provider <span class="muted small">bring your own key · used by Voice assistant and Ask (Ctrl K)</span></h3>
+     <div class="frow"><label for="aiProv">Provider</label><select id="aiProv"><option value="xai">xAI Grok</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option><option value="self">Self-hosted (OpenAI-compatible)</option></select></div>
+     <div class="frow"><label for="aiKey">API key</label><div class="keybox"><input id="aiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key (stored locally)"><button id="aiEye" class="tb" title="Show/hide key" type="button"><svg class="ic" viewBox="0 0 24 24"><path class="s" d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path id="aiEyeSlash" d="M4 20L20 4" stroke="currentColor" stroke-width="1.7"/></svg></button><button id="aiClear" class="btn" type="button">Clear</button></div></div>
+     <div class="frow"><label for="aiModel">Model</label><input id="aiModel" spellcheck="false"></div>
+     <div class="frow" id="aiBaseRow"><label for="aiBase">Base URL</label><input id="aiBase" spellcheck="false" placeholder="http://localhost:11434/v1  (LM Studio: http://localhost:1234/v1)"></div>
+     <div class="frow"><span></span><div class="trow"><button id="aiTest" class="btn accent" type="button">Test connection</button><span id="aiStatus" class="muted small"></span></div></div>
+     <p class="note small">UX mock: the key is kept only in this browser's localStorage and is never logged, put in a URL or sent anywhere — Test connection returns a mock result without any network request. A real app stores it in the OS keychain (Keychain / Credential Manager / libsecret).</p>
+    </section>
+   </div>
+   <div id="libView" hidden>
+    <div class="tabs" id="tabs"></div>
+    <div class="libbar"><label class="sort muted" id="facetWrap">By <select id="facetSel"><option value="genres">Genre</option><option value="studios">Studio</option><option value="decades">Decade</option><option value="tags">Tag</option></select></label><div id="facetChips" class="chips"></div>
+      <label class="sort muted">Sort <select id="sortSel"><option value="title">Title</option><option value="year">Year</option><option value="added">Date added</option><option value="rating">Rating</option><option value="mins">Runtime</option></select>
+      <button id="sortDir" class="sortdir" title="Toggle direction">↑</button></label></div>
+    <div class="muted small" id="libCount"></div>
+    <div id="libGrid" class="grid"></div>
+    <div id="libAlt" hidden></div><nav id="azRail" aria-label="Jump to letter" hidden></nav>
+   </div>
+  </main>
+  <aside id="queue" class="qdrawer"><div class="ptabs"><b>Queue</b><button id="qClose" class="tb" title="Close">✕</button></div><div id="qList"></div></aside>
+  <div id="npbar" hidden><div class="npart" id="npArt"></div><div class="npmeta"><div id="npTitle"></div><div class="muted small" id="npArtist"></div></div>
+   <button id="npPrev" class="cb" title="Previous"><svg class="ic"><use href="assets/icons.svg#tprev"/></svg></button>
+   <button id="npPlay" class="playbtn" title="Play/Pause"><svg class="ic"><use href="assets/icons.svg#tpause"/></svg></button>
+   <button id="npNext" class="cb" title="Next"><svg class="ic"><use href="assets/icons.svg#tnext"/></svg></button>
+   <span id="npCur" class="tm">0:00</span><div id="npSeek"><i></i></div><span id="npDur" class="tm">0:00</span>
+   <button id="npQ" class="cb" title="Queue"><svg class="ic"><use href="assets/icons.svg#plist"/></svg></button></div>
+ </section>
+
+ <section id="player" class="screen" hidden>
+  <div id="stage">
+   <div id="ambient"></div>
+   <div id="vidwrap"><video id="vid" src="assets/sample.mp4" muted loop playsinline preload="auto"></video></div>
+   <div id="scrim"></div>
+   <aside id="pDetails" class="panel left" aria-label="Details"><div class="art"></div><div class="glass"></div><div class="pc" id="detailsBody"></div></aside>
+   <aside id="pUpnext" class="panel right" aria-label="Up Next"><div class="art"></div><div class="glass"></div><div class="pc" id="upList"></div></aside>
+   <div id="topctl" class="bar">
+    <div class="tl"><button id="bD" class="tb" title="Info (I)"><svg class="ic"><use href="assets/icons.svg#more"/></svg></button><button id="bU" class="tb" title="Info panel (I)"><svg class="ic"><use href="assets/icons.svg#sidebar"/></svg></button><i class="vsep"></i>
+     <button id="back" class="crumb" title="Back to library (Esc)"><svg class="ic"><use href="assets/icons.svg#folder"/></svg><span id="crumb">Movies</span></button></div>
+    <div id="ptitle"></div>
+    <div class="tr"><span id="modeLabel" class="pill"></span><button class="tb" title="Minimize"><svg class="ic"><use href="assets/icons.svg#wmin"/></svg></button><button class="tb" title="Maximize"><svg class="ic"><use href="assets/icons.svg#wmax"/></svg></button><button id="bF" class="tb" title="Fullscreen (F)"><svg class="ic"><use href="assets/icons.svg#wfs"/></svg></button><button id="bX" class="tb" title="Close"><svg class="ic"><use href="assets/icons.svg#wclose"/></svg></button></div>
+   </div>
+   <div id="toast"></div>
+   <div id="stripL" class="strip l"></div><div id="stripR" class="strip r"></div>
+   <button id="hL" class="edge l" aria-label="Info (I)"><span class="pill"></span><span class="chev">›</span><span class="tip">Info (I)</span></button>
+   <button id="hR" class="edge r" aria-label="Up Next (U)"><span class="chev">‹</span><span class="pill"></span><span class="tip">Up Next (U)</span></button>
+   <div id="edgeHint" hidden>Info · Up Next</div>
+   <button id="skipBtn" class="skip" hidden><span id="skipTxt">Skip Intro</span><i id="skipBar"></i></button>
+   <div id="apCard" class="apcard" hidden></div>
+   <div id="bar" class="bar">
+    <div class="ctl">
+     <button id="rew" class="cb" title="Previous / back 10s (←)"><svg class="ic"><use href="assets/icons.svg#tprev"/></svg></button>
+     <button id="play" class="playbtn" title="Play/Pause (Space)"><svg class="ic"><use href="assets/icons.svg#tpause"/></svg></button>
+     <button id="fwd" class="cb" title="Next / forward 10s (→)"><svg class="ic"><use href="assets/icons.svg#tnext"/></svg></button>
+     <span id="tcur" class="tm">00:00:00</span>
+     <div id="seek"><div id="buf"></div><div id="prog"></div><div id="chaps"></div><div id="knob"></div>
+      <div id="thumb"><div id="thumbimg"></div><span id="thumbt">0:00</span></div></div>
+     <span id="tdur" class="tm">00:00:10</span>
+     <div class="volume"><button class="cb" title="Mute"><svg class="ic"><use href="assets/icons.svg#spk"/></svg></button><div class="wedge"><svg viewBox="0 0 89 27.36" preserveAspectRatio="none"><defs><linearGradient id="vg" x1="0" x2="1"><stop offset="0" stop-color="var(--accent-dim)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient><clipPath id="vc"><path d="M1.4 25.96L87.6 1.4V25.96z"/></clipPath></defs><path d="M0 27.36L89 0V27.36z" fill="#090909"/><rect clip-path="url(#vc)" x="0" y="0" width="60" height="27.36" fill="url(#vg)" id="vfill"/></svg></div></div>
+     <button id="bMic" class="cb" title="Voice assistant (V)"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+     <button id="bAmb" class="cb" title="Ambient edge fill (A)"><svg class="ic"><use href="assets/icons.svg#wave"/></svg></button>
+     <div class="ccwrap"><button id="bCc" class="cb" title="Audio & subtitles (C)" aria-haspopup="menu" aria-expanded="false"><svg class="ic"><use href="assets/icons.svg#cc"/></svg></button>
+      <div id="ccMenu" class="menu" hidden role="menu" aria-label="Audio and subtitles">
+       <div class="mh">Audio</div>
+       <button type="button" class="mi on" role="menuitemradio" aria-checked="true" data-audio="en-eac3">English · E-AC3 5.1</button>
+       <button type="button" class="mi" role="menuitemradio" aria-checked="false" data-audio="en-aac">English · AAC stereo</button>
+       <button type="button" class="mi" role="menuitemradio" aria-checked="false" data-audio="es-ac3">Spanish · AC3 5.1</button>
+       <div class="mh">Subtitles</div>
+       <button type="button" class="mi on" role="menuitemradio" aria-checked="true" data-cc="off">Off</button>
+       <button type="button" class="mi" role="menuitemradio" aria-checked="false" data-cc="en-srt">English (SRT)</button>
+       <button type="button" class="mi" role="menuitemradio" aria-checked="false" data-cc="en-pgs">English (PGS)</button>
+       <button type="button" class="mi" role="menuitemradio" aria-checked="false" data-cc="es-pgs">Spanish (PGS)</button>
+       <div class="mh">Watch together</div>
+       <button type="button" class="mi" role="menuitem" data-opt="watch-together">Start watch together</button>
+       <div class="mh">Playback</div>
+       <button type="button" class="mi" role="menuitem" data-opt="skip-intro">Skip intros when marked</button>
+       <button type="button" class="mi" role="menuitem" data-opt="next-ep">Autoplay next episode</button>
+      </div></div>
+     <div class="gearwrap"><button id="bGear" class="cb" title="Settings: aspect (Z)"><svg class="ic"><use href="assets/icons.svg#gear"/></svg></button>
+      <div id="gearMenu" class="menu" hidden>
+       <div class="mh">Aspect (Z)</div><div id="aspectList"></div>
+       <button id="bAspect" class="mi" hidden><span id="aspectTxt">Fit</span></button>
+       <label id="biasWrap" class="mi bias">Smart-crop bias <input id="bias" type="range" min="-15" max="15" value="0"></label>
+       <button id="bAmb2" class="mi">Ambient edge fill (A)</button>
+       <button id="apGear" class="mi" data-ap>Autoplay next episode</button></div></div>
+     <button id="bU2" class="cb" title="Up next (U)"><svg class="ic"><use href="assets/icons.svg#plist"/></svg></button>
+    </div>
+   </div>
+  </div>
+ </section>
+</div>
+
+<div id="voice" hidden><div class="vback"></div><div class="vbox"><div class="orb"><i></i><i></i><i></i></div>
+ <div class="wave"><span style="--d:0.00s"></span><span style="--d:0.07s"></span><span style="--d:0.14s"></span><span style="--d:0.21s"></span><span style="--d:0.28s"></span><span style="--d:0.35s"></span><span style="--d:0.42s"></span><span style="--d:0.49s"></span><span style="--d:0.56s"></span><span style="--d:0.63s"></span><span style="--d:0.70s"></span><span style="--d:0.77s"></span><span style="--d:0.84s"></span><span style="--d:0.91s"></span><span style="--d:0.98s"></span><span style="--d:1.05s"></span><span style="--d:1.12s"></span><span style="--d:1.19s"></span><span style="--d:1.26s"></span><span style="--d:1.33s"></span><span style="--d:1.40s"></span><span style="--d:1.47s"></span><span style="--d:1.54s"></span><span style="--d:1.61s"></span></div>
+ <div class="vlisten">Listening…</div><div id="vtx" class="vtx"></div><div class="muted small" id="vhint">Esc or click outside to close</div></div></div>
+<div id="pal" class="modal" hidden><div class="modal-bg"></div><div class="palbox" role="dialog" aria-label="Command palette"><div class="askin"><svg class="ic"><use href="assets/icons.svg#search"/></svg><input id="palq" placeholder="Search titles, people, commands — or ask AI" autocomplete="off" role="combobox" aria-controls="palList"><kbd>Esc</kbd></div><div id="palList" role="listbox"></div><div class="palfoot muted small">↑↓ navigate · Enter open · Esc close · AI answers are mock (no request sent)</div></div></div>
+<div id="ask" class="modal" hidden><div class="modal-bg"></div>
+ <div class="modal-box"><div class="askin"><svg class="ic"><use href="assets/icons.svg#search"/></svg><input id="askq" placeholder="Try “unwatched sci-fi from the 1990s”"></div>
+  <div class="muted small">Filters (mock, client-side)</div><div id="chipbox" class="chips"></div>
+  <div class="muted small">Enter to apply · Esc to close · <span id="askProv"></span></div></div></div>
+<script src="data.js?v=13"></script><script src="app.js?v=13"></script>
+<script src="desktop.js"></script></body></html>

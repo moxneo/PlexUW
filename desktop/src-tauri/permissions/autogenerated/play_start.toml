@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-play-start"
+description = "Enables the play_start command without any pre-configured scope."
+commands.allow = ["play_start"]
+
+[[permission]]
+identifier = "deny-play-start"
+description = "Denies the play_start command without any pre-configured scope."
+commands.deny = ["play_start"]

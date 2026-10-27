@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-version-pick"
+description = "Enables the version_pick command without any pre-configured scope."
+commands.allow = ["version_pick"]
+
+[[permission]]
+identifier = "deny-version-pick"
+description = "Denies the version_pick command without any pre-configured scope."
+commands.deny = ["version_pick"]

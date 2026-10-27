@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-collections"
+description = "Enables the browse_collections command without any pre-configured scope."
+commands.allow = ["browse_collections"]
+
+[[permission]]
+identifier = "deny-browse-collections"
+description = "Denies the browse_collections command without any pre-configured scope."
+commands.deny = ["browse_collections"]

@@ -1,0 +1,8 @@
+=== launch 2026-10-24T22:17:52-04:00 ===
+secrets ping ok: unix:path=/tmp/dbus-oKUTlnULcu,guid=8c4c87d5fb5793188a34cf3a6adb6af4
+secrets ping ok: unix:path=/tmp/dbus-oKUTlnULcu,guid=8c4c87d5fb5793188a34cf3a6adb6af4
+secrets ping FAIL: unix:path=/tmp/dbus-wBFmuMjAqE,guid=3f5f0e50a7ffc4f966369f226adcdd53
+DISPLAY=:5 DBUS=unix:path=/tmp/dbus-oKUTlnULcu,guid=8c4c87d5fb5793188a34cf3a6adb6af4 GKR=/tmp/xdg-runtime/keyring
+exec /tmp/plexuw-live-fu9k.bin
+
+(plexuw-live-fu9k.bin:2044420): dbind-WARNING **: 22:17:52.833: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files

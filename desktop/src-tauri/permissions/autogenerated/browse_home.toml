@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-home"
+description = "Enables the browse_home command without any pre-configured scope."
+commands.allow = ["browse_home"]
+
+[[permission]]
+identifier = "deny-browse-home"
+description = "Denies the browse_home command without any pre-configured scope."
+commands.deny = ["browse_home"]

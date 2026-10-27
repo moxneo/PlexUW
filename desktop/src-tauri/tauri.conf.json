@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PlexUW",
+  "version": "0.1.0",
+  "identifier": "app.plexuw.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "bash ./sync-web.sh",
+    "beforeDevCommand": "bash ./sync-web.sh"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "PlexUW",
+        "width": 1600,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "decorations": false,
+        "visible": false,
+        "center": true,
+        "backgroundColor": "#0B0D12"
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: plexuw:",
+        "media-src": "'self' blob: plexuw:",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost plexuw:",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "form-action": "'none'",
+        "base-uri": "'self'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "deb",
+      "appimage"
+    ],
+    "publisher": "PlexUW",
+    "shortDescription": "PlexUW (prototype, mock data)",
+    "icon": [
+      "icons/plexuw-32.png",
+      "icons/icon_128x128.png",
+      "icons/icon_128x128@2x.png",
+      "icons/plexuw-256.png",
+      "icons/PlexUW.icns",
+      "icons/plexuw.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/plexuw.ico",
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
+  }
+}

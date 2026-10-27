@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-facet"
+description = "Enables the browse_facet command without any pre-configured scope."
+commands.allow = ["browse_facet"]
+
+[[permission]]
+identifier = "deny-browse-facet"
+description = "Denies the browse_facet command without any pre-configured scope."
+commands.deny = ["browse_facet"]

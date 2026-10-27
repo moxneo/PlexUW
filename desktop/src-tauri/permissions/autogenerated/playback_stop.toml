@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-playback-stop"
+description = "Enables the playback_stop command without any pre-configured scope."
+commands.allow = ["playback_stop"]
+
+[[permission]]
+identifier = "deny-playback-stop"
+description = "Denies the playback_stop command without any pre-configured scope."
+commands.deny = ["playback_stop"]

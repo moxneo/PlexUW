@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-manual-confirm"
+description = "Enables the manual_confirm command without any pre-configured scope."
+commands.allow = ["manual_confirm"]
+
+[[permission]]
+identifier = "deny-manual-confirm"
+description = "Denies the manual_confirm command without any pre-configured scope."
+commands.deny = ["manual_confirm"]

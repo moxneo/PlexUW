@@ -1,0 +1,47 @@
+SHA: fa1705aedb3f1973c77391850c09b762b6db839d
+branch: cursor/live-versions-home-nav-8486
+archive: git archive HEAD excluding artifacts/plexuw-tip.tar.gz, artifacts/TIP-SHA.txt, artifacts/VERIFY.txt
+desktop/: present
+README.md, SOURCE-STATUS.md, LEGACY-USERSCRIPT.md: present
+
+tar tzf artifacts/plexuw-tip.tar.gz | head -40
+LEGACY-USERSCRIPT.md
+LESSONS.md
+README.md
+RELEASE-NOTES.md
+SOURCE-STATUS.md
+app.js
+artifacts/
+artifacts/tip-6b370e9/
+artifacts/tip-6b370e9/SHA256SUMS
+artifacts/tip-6b370e9/SHA256SUMS.upstream
+artifacts/tip-6b370e9/smoke/
+artifacts/tip-6b370e9/smoke/10_about.png
+artifacts/tip-6b370e9/smoke/20_cruise_person_modal.png
+artifacts/tip-6b370e9/smoke/21_cruise_person_modal_b.png
+artifacts/tip-6b370e9/smoke/22_bio_gap_more.png
+assets/
+assets/icons.svg
+assets/sprite.jpg
+brand/
+brand/plexuw-icon.svg
+brand/plexuw-lockup-dark.svg
+data.js
+desktop/
+desktop/.gitignore
+desktop/package-lock.json
+desktop/package.json
+desktop/shim/
+desktop/shim/cold-start.js
+desktop/shim/desktop.css
+desktop/shim/desktop.js
+desktop/shim/lint-shim.sh
+desktop/shim/plex-browse.js
+desktop/shim/px-icons.js
+desktop/shim/test/
+desktop/shim/test/fu7f-modal.test.mjs
+desktop/shim/test/fu7f-nav.test.mjs
+desktop/shim/test/fu7g-back.test.mjs
+desktop/shim/test/fu9p-hydrate.test.mjs
+desktop/shim/test/fu9p-play.test.mjs
+desktop/shim/test/plex-browse.test.mjs

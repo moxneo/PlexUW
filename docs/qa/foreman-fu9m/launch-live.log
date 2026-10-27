@@ -1,0 +1,5 @@
+=== launch 2026-10-24T22:47:53-04:00 ===
+DISPLAY=:5 DBUS=unix:path=/tmp/dbus-oKUTlnULcu,guid=8c4c87d5fb5793188a34cf3a6adb6af4 GKR=/tmp/xdg-runtime/keyring
+exec AppImage extract-and-run
+
+(plexuw:2095584): dbind-WARNING **: 22:47:55.880: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files

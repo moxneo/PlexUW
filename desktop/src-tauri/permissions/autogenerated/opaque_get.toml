@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-opaque-get"
+description = "Enables the opaque_get command without any pre-configured scope."
+commands.allow = ["opaque_get"]
+
+[[permission]]
+identifier = "deny-opaque-get"
+description = "Denies the opaque_get command without any pre-configured scope."
+commands.deny = ["opaque_get"]

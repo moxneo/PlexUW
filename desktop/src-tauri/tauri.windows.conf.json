@@ -1,0 +1,19 @@
+{
+  "app": {
+    "security": {
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: http://plexuw.localhost",
+        "media-src": "'self' blob: http://plexuw.localhost",
+        "font-src": "'self' data:",
+        "connect-src": "ipc: http://ipc.localhost http://plexuw.localhost",
+        "object-src": "'none'",
+        "frame-src": "'none'",
+        "form-action": "'none'",
+        "base-uri": "'self'"
+      }
+    }
+  }
+}

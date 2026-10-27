@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window only: core events, window drag, and the app's own declared commands (AppManifest). No HTTP/fs/shell plugins.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default", "core:window:allow-start-dragging",
+    "allow-win-minimize", "allow-win-toggle-maximize", "allow-win-close", "allow-win-toggle-fullscreen", "allow-win-is-fullscreen", "allow-win-state",
+    "allow-source-get", "allow-auth-start", "allow-auth-cancel", "allow-servers-list", "allow-server-connect", "allow-manual-probe",
+    "allow-sign-out", "allow-prefs-get", "allow-prefs-set", "allow-ai-key-set", "allow-ai-key-has",
+    "allow-browse-home", "allow-browse-section", "allow-browse-section-hubs", "allow-browse-facet", "allow-browse-collections",
+    "allow-browse-collection", "allow-browse-item", "allow-browse-children", "allow-browse-search", "allow-play-start", "allow-opaque-get", "allow-playback-stop", "allow-manual-confirm", "allow-ai-migration-failed", "allow-browse-letters", "allow-version-pick", "allow-browse-person", "allow-browse-related",
+    "allow-account-me", "allow-mark-watched"
+  ]
+}

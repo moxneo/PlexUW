@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-win-state"
+description = "Enables the win_state command without any pre-configured scope."
+commands.allow = ["win_state"]
+
+[[permission]]
+identifier = "deny-win-state"
+description = "Denies the win_state command without any pre-configured scope."
+commands.deny = ["win_state"]
