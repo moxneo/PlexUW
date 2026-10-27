@@ -891,14 +891,14 @@ mod t {
         assert_eq!(get(bare).await.status, 200);
         let asset = p.images.register_public("https://plex.tv/users/asset/avatar").expect("asset avatar");
         assert_eq!(get(asset).await.status, 200);
-        for id in ["evil", "badd", "loop"] {
+        for id in ["evil", "badd", "loop", "qevil", "qmore"] {
             let hid = p.images.register_public(&format!("https://plex.tv/users/{id}/avatar")).unwrap();
             assert_eq!(get(hid).await.status, 502, "{id}");
         }
         let log = ft.log();
-        assert!(log.iter().all(|l| !l.contains("evil.example") && !l.contains("i0.wp.com") && !l.contains("secure.gravatar.com")), "{log:?}");
+        assert!(log.iter().all(|l| !l.contains("evil.example") && !l.contains("i0.wp.com") && !l.contains("secure.gravatar.com") && !l.contains("?x=1") && !l.contains("&x=1")), "{log:?}");
         assert!(log.iter().any(|l| l.contains("https://plex.tv/avatars/F18052/31/3") && !l.contains("token=")));
-        assert!(log.iter().any(|l| l.contains("assets.plex.tv/avatars/") && !l.contains("token=")));
+        assert!(log.iter().any(|l| l.contains("assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705") && !l.contains("token=")));
         // Registration refuses everything outside the allowlist.
         for bad in [
             "http://metadata-static.plex.tv/people/a.jpg",
@@ -949,6 +949,9 @@ mod t {
         assert_eq!(check(&Url::parse("https://plex.tv/users/abc/avatar?c=1&x=2").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
         assert!(check(&Url::parse("https://plex.tv/avatars/F18052/31/3").unwrap(), &Cred::PublicImage, &b).is_ok());
         assert!(check(&Url::parse("https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.").unwrap(), &Cred::PublicImage, &b).is_ok());
+        assert!(check(&Url::parse("https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705").unwrap(), &Cred::PublicImage, &b).is_ok());
+        assert_eq!(check(&Url::parse("https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?x=1").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
+        assert_eq!(check(&Url::parse("https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705&x=1").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
         assert_eq!(check(&Url::parse("https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap(), &Cred::PublicImage, &b), Err(Deny::Host));
         assert_eq!(check(&Url::parse("https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.").unwrap(), &Cred::Account, &b), Err(Deny::Host));
     }

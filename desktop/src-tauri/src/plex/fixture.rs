@@ -186,7 +186,9 @@ impl Transport for FixtureTransport {
                     let loc = match id {
                         "evil" => "https://evil.example/a.jpg",
                         "badd" => "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fevil.example%2Fa.jpg&s=80",
-                        "asset" => "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.",
+                        "asset" => "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705",
+                        "qevil" => "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?x=1",
+                        "qmore" => "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705&x=1",
                         "loop" => "https://plex.tv/avatars/FFFFFF/1/1",
                         _ => "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Favatars%2FF18052%2F31%2F3&s=80",
                     };
@@ -201,7 +203,8 @@ impl Transport for FixtureTransport {
                 }
                 (Method::Get, "assets.plex.tv", p) => {
                     if tok.is_some() { return json(401, "{}".into()); }
-                    if p == "/avatars/0123456789abcdef0123456789abcdef01234567." {
+                    if p == "/avatars/0123456789abcdef0123456789abcdef01234567."
+                        || p == "/avatars/938d380c8717c545a056e515cf709d254a02a698." {
                         return Ok(Resp { status: 200, body: vec![0xFF; 64], content_type: Some("image/jpeg".into()), content_range: None, location: None });
                     }
                     json(404, "{}".into())

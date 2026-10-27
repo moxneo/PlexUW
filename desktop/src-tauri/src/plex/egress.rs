@@ -84,7 +84,12 @@ fn assets_avatar_path(u: &Url) -> bool {
     use std::sync::OnceLock;
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"^/avatars/[0-9a-f]{40}\.$").unwrap());
-    u.query().is_none() && re.is_match(u.path())
+    // Live Location is `…<40 hex>.?1668821705`: one digits-only cache-buster, no keys.
+    let q_ok = match u.query() {
+        None => true,
+        Some(q) => (1..=20).contains(&q.len()) && q.bytes().all(|b| b.is_ascii_digit()),
+    };
+    q_ok && re.is_match(u.path())
 }
 
 /// Default Plex avatar PNG: `/avatars/<6 hex>/<n>/<n>` (the `d` target of a gravatar 302).
@@ -482,6 +487,8 @@ mod t {
         assert_eq!(avatar_hop_url(grav).unwrap().as_str(), "https://plex.tv/avatars/F18052/31/3");
         let asset = "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.";
         assert_eq!(avatar_hop_url(asset).unwrap().as_str(), asset);
+        let bust = "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705";
+        assert_eq!(avatar_hop_url(bust).unwrap().as_str(), bust);
         assert_eq!(avatar_hop_url("https://plex.tv/avatars/F18052/31/3").unwrap().as_str(), "https://plex.tv/avatars/F18052/31/3");
         for bad in [
             "https://evil.example/a.jpg",
@@ -490,6 +497,9 @@ mod t {
             "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Fusers%2Fabc%2Favatar&s=80",
             "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Favatars%2FF18052%2F31%2F3&s=80&x=1",
             "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.?x=1",
+            "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705&x=1",
+            "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?1668821705=1",
+            "https://assets.plex.tv/avatars/938d380c8717c545a056e515cf709d254a02a698.?166882170512345678901",
             "https://assets.plex.tv.evil.example/avatars/0123456789abcdef0123456789abcdef01234567.",
             "https://user@assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.",
             "/avatars/F18052/31/3",
