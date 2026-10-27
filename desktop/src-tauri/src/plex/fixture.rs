@@ -54,7 +54,7 @@ fn profile_note(headers: &[(&str, String)]) -> &'static str {
     }
 }
 
-fn json(status: u16, s: String) -> Result<Resp, String> { Ok(Resp { status, body: s.into_bytes(), content_type: Some("application/json".into()), content_range: None }) }
+fn json(status: u16, s: String) -> Result<Resp, String> { Ok(Resp { status, body: s.into_bytes(), content_type: Some("application/json".into()), content_range: None, location: None }) }
 
 /// Discover biography fixture. PMS summary for tag_key(0) is empty, so that one key
 /// is the only person whose bio must come from this GET. Any other key is a marker
@@ -86,7 +86,7 @@ impl Transport for FixtureTransport {
             let strong = r.url.query().map(|q| q.contains("strong=true")).unwrap_or(false);
             match (r.method, host.as_str(), path.as_str()) {
                 (Method::Post, "plex.tv", "/api/v2/pins") => {
-                    if self.pins_redirect { return Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None }); }
+                    if self.pins_redirect { return Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None, location: None }); }
                     let code = self.pin_code.clone().unwrap_or_else(|| (if strong { "fxcode7k2q9w4m8r1t6y3u0p5" } else { "K7Q2" }).into());
                     let code = serde_json::to_string(&code).unwrap();
                     let code = code.trim_matches('"');
@@ -142,10 +142,10 @@ impl Transport for FixtureTransport {
                 // plex.tv CDN cast photos: must arrive token-less (Sentinel, round 5).
                 (Method::Get, "metadata-static.plex.tv", p) => {
                     if tok.is_some() { return json(401, "{}".into()); }
-                    let img = |ct: &str, n: usize| Ok(Resp { status: 200, body: vec![0xFF; n], content_type: Some(ct.into()), content_range: None });
+                    let img = |ct: &str, n: usize| Ok(Resp { status: 200, body: vec![0xFF; n], content_type: Some(ct.into()), content_range: None, location: None });
                     match p {
                         "/people/fixture.jpg" => img("image/jpeg", 64),
-                        "/people/redirect.jpg" => Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None }),
+                        "/people/redirect.jpg" => Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None, location: Some("https://evil.example/a.jpg".into()) }),
                         "/people/html.jpg" => img("text/html", 64),
                         "/people/anim.png" => img("image/gif", 64),
                         "/people/svg.png" => img("image/svg+xml", 64),
@@ -167,7 +167,7 @@ impl Transport for FixtureTransport {
                     if r.url.query().is_some() { return json(400, "{}".into()); }
                     json(200, r#"{"id":7,"uuid":"not-for-js","email":"not-for-js@example.com","username":"moxneo","title":"Moxneo","friendlyName":"Mox","subscription":{"active":true},"thumb":"https://plex.tv/users/abc/avatar?c=1"}"#.into())
                 }
-                // Account avatars: token-less, same class as CDN cast photos.
+                // Account avatars 302. The image is the re-validated hop, not this URL.
                 (Method::Get, "plex.tv", p)
                     if p.strip_prefix("/users/").and_then(|s| s.strip_suffix("/avatar"))
                         .is_some_and(|id| (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')) =>
@@ -182,7 +182,29 @@ impl Transport for FixtureTransport {
                         }
                     };
                     if !q_ok { return json(404, "{}".into()); }
-                    Ok(Resp { status: 200, body: vec![0xFF; 64], content_type: Some("image/jpeg".into()), content_range: None })
+                    let id = p.strip_prefix("/users/").and_then(|s| s.strip_suffix("/avatar")).unwrap_or("");
+                    let loc = match id {
+                        "evil" => "https://evil.example/a.jpg",
+                        "badd" => "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fevil.example%2Fa.jpg&s=80",
+                        "asset" => "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.",
+                        "loop" => "https://plex.tv/avatars/FFFFFF/1/1",
+                        _ => "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Favatars%2FF18052%2F31%2F3&s=80",
+                    };
+                    Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None, location: Some(loc.into()) })
+                }
+                (Method::Get, "plex.tv", "/avatars/F18052/31/3") => {
+                    if tok.is_some() { return json(401, "{}".into()); }
+                    Ok(Resp { status: 200, body: vec![0xFF; 64], content_type: Some("image/jpeg".into()), content_range: None, location: None })
+                }
+                (Method::Get, "plex.tv", "/avatars/FFFFFF/1/1") => {
+                    Ok(Resp { status: 302, body: vec![], content_type: None, content_range: None, location: Some("https://i0.wp.com/plex.tv/avatars/FFFFFF/1/1".into()) })
+                }
+                (Method::Get, "assets.plex.tv", p) => {
+                    if tok.is_some() { return json(401, "{}".into()); }
+                    if p == "/avatars/0123456789abcdef0123456789abcdef01234567." {
+                        return Ok(Resp { status: 200, body: vec![0xFF; 64], content_type: Some("image/jpeg".into()), content_range: None, location: None });
+                    }
+                    json(404, "{}".into())
                 }
                 (Method::Get, _, p) if super::egress::server_path(p, r.url.query()) || p == "/photo/:/transcode" => {
                     let q = r.url.query().unwrap_or("");
@@ -198,7 +220,7 @@ impl Transport for FixtureTransport {
                         Some(Ok((ct, body))) => {
                             if p == "/library/all" && self.guid_fail { return json(500, "{}".into()); }
                             let body = if p == "/library/all" && self.guid_slim { strip_media_arrays(&body) } else { body };
-                            Ok(Resp { status: 200, body, content_type: Some(ct.into()), content_range: None })
+                            Ok(Resp { status: 200, body, content_type: Some(ct.into()), content_range: None, location: None })
                         }
                         Some(Err(code)) => json(code, "{}".into()),
                         None => json(404, "{}".into()),

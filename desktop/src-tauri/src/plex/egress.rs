@@ -1,6 +1,7 @@
 //! The single egress function (§6a H2). Every outbound request goes through
 //! `Egress::send`, which enforces:
-//! - https only, no userinfo, no redirects (3xx is an error, never followed);
+//! - https only, no userinfo, no redirects (3xx is an error, never followed),
+//!   except one re-validated image hop for an account-avatar PublicImage;
 //! - the account token goes only to plex.tv / clients.plex.tv, plus one GET of a
 //!   person biography at discover.provider.plex.tv;
 //! - a server token for machine M goes only to hosts bound to M (exact host:port
@@ -77,6 +78,70 @@ pub fn parse_public_image(raw: &str) -> Option<Url> {
     if raw.len() > 400 || raw.contains(['\\', '%', '@', '#']) { return None; }
     let u = Url::parse(raw).ok()?;
     (u.as_str() == raw && public_image_ok(&u)).then_some(u)
+}
+
+fn assets_avatar_path(u: &Url) -> bool {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"^/avatars/[0-9a-f]{40}\.$").unwrap());
+    u.query().is_none() && re.is_match(u.path())
+}
+
+/// Default Plex avatar PNG: `/avatars/<6 hex>/<n>/<n>` (the `d` target of a gravatar 302).
+fn default_avatar_path(u: &Url) -> bool {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"^/avatars/[0-9A-Fa-f]{6}/[0-9]{1,3}/[0-9]{1,3}$").unwrap());
+    u.query().is_none() && re.is_match(u.path())
+}
+
+/// The image URL a single avatar hop may fetch. Not a cast-photo URL.
+fn avatar_hop_ok(u: &Url) -> bool {
+    u.scheme() == "https" && u.username().is_empty() && u.password().is_none()
+        && u.port().is_none() && u.port_or_known_default() == Some(443)
+        && u.fragment().is_none() && u.path().len() <= 80
+        && !u.path().split('/').any(|s| s == ".." || s == ".")
+        && match u.host_str() {
+            Some("assets.plex.tv") => assets_avatar_path(u),
+            Some("plex.tv") => default_avatar_path(u),
+            _ => false,
+        }
+}
+
+/// Map one Location to the image we will fetch. Gravatar itself 302s again, so a
+/// `secure.gravatar.com` Location is not fetched: only its `d` image, when that
+/// image is a plex.tv default avatar. Relative Locations are not joined.
+fn avatar_hop_url(raw: &str) -> Option<Url> {
+    if raw.len() > 400 || raw.contains(['\\', '@', '#', ' ']) { return None; }
+    let u = Url::parse(raw).ok()?;
+    if u.scheme() != "https" || u.port().is_some() || !u.username().is_empty() || u.password().is_some() || u.fragment().is_some() {
+        return None;
+    }
+    match u.host_str() {
+        Some("assets.plex.tv") | Some("plex.tv") => (u.as_str() == raw && avatar_hop_ok(&u)).then_some(u),
+        Some("secure.gravatar.com") => {
+            use std::sync::OnceLock;
+            static RE: OnceLock<regex::Regex> = OnceLock::new();
+            let re = RE.get_or_init(|| regex::Regex::new(r"^/avatar/[0-9a-f]{64}$").unwrap());
+            if !re.is_match(u.path()) { return None; }
+            let q = u.query()?;
+            let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
+            if pairs.len() != 2 { return None; }
+            let mut d = None;
+            let mut s_ok = false;
+            for (k, v) in pairs {
+                if k == "d" && d.is_none() { d = Some(v); }
+                else if k == "s" && (1..=4).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_digit()) { s_ok = true; }
+                else { return None; }
+            }
+            if !s_ok { return None; }
+            let d = d?;
+            if d.contains(['\\', '%', '@', '#', ' ']) { return None; }
+            let du = Url::parse(&d).ok()?;
+            (du.as_str() == d && du.host_str() == Some("plex.tv") && avatar_hop_ok(&du)).then_some(du)
+        }
+        _ => None,
+    }
 }
 
 #[derive(Default, Debug)]
@@ -186,8 +251,9 @@ pub fn check(u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
             if !server_path(p, u.query()) { return Err(Deny::Path); }
         }
         Cred::PublicImage => {
-            if !public_image_host(u) { return Err(Deny::Host); }
-            if !public_image_ok(u) { return Err(Deny::Path); }
+            let known = matches!(u.host_str(), Some(PUBLIC_IMAGE_HOST) | Some("plex.tv") | Some("assets.plex.tv"));
+            if !known || u.port().is_some() || u.port_or_known_default() != Some(443) { return Err(Deny::Host); }
+            if !(public_image_ok(u) || avatar_hop_ok(u)) { return Err(Deny::Path); }
         }
         Cred::None => {
             if is_account_host(u) {
@@ -261,6 +327,29 @@ impl Egress {
         if r.body.len() > max_body { return Err(EgressError::Net(crate::plex::transport::TOO_LARGE.into())); }
         if (300..400).contains(&r.status) { return Err(EgressError::Redirect); }
         Ok(r)
+    }
+
+    /// Token-less public image. Cast photos refuse every 3xx. An account avatar may
+    /// follow one Location that `avatar_hop_url` rewrites to an image host, then
+    /// stops. The hop is fetched with redirects still off and no token.
+    pub async fn send_public_image(&self, url: Url, timeout: Duration, max_body: usize) -> Result<Resp, EgressError> {
+        let avatar = avatar_image(&url);
+        let fetch = |url: Url| {
+            let headers = self.plex_headers();
+            async move {
+                check(&url, &Cred::PublicImage, &self.bindings.lock().unwrap()).map_err(EgressError::Denied)?;
+                let r = self.t.send(Req { method: Method::Get, url, headers, token: None, timeout, max_body }).await.map_err(EgressError::Net)?;
+                if r.body.len() > max_body { return Err(EgressError::Net(crate::plex::transport::TOO_LARGE.into())); }
+                Ok(r)
+            }
+        };
+        let r = fetch(url).await?;
+        if !(300..400).contains(&r.status) { return Ok(r); }
+        if !avatar { return Err(EgressError::Redirect); }
+        let hop = r.location.as_deref().and_then(avatar_hop_url).ok_or(EgressError::Redirect)?;
+        let r2 = fetch(hop).await?;
+        if (300..400).contains(&r2.status) { return Err(EgressError::Redirect); }
+        Ok(r2)
     }
 
     /// Playback fetch: same credential rules, but `Accept` is replaced and an optional
@@ -386,5 +475,35 @@ mod t {
         assert!(!server_path("/photo/:/transcode", Some("width=300&url=%2F%2Fevil.example%2Fx")));
         assert!(!server_path("/photo/:/transcode", Some("width=300&url=%2Flibrary%2Fmetadata%2F77%2Fthumb%2F..%2F..%2Fx")));
         assert!(!server_path("/photo/:/transcode", Some("width=300")));
+    }
+    #[test]
+    fn avatar_hop_is_the_image_not_gravatar() {
+        let grav = "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Favatars%2FF18052%2F31%2F3&s=80";
+        assert_eq!(avatar_hop_url(grav).unwrap().as_str(), "https://plex.tv/avatars/F18052/31/3");
+        let asset = "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.";
+        assert_eq!(avatar_hop_url(asset).unwrap().as_str(), asset);
+        assert_eq!(avatar_hop_url("https://plex.tv/avatars/F18052/31/3").unwrap().as_str(), "https://plex.tv/avatars/F18052/31/3");
+        for bad in [
+            "https://evil.example/a.jpg",
+            "https://i0.wp.com/plex.tv/avatars/F18052/31/3",
+            "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fevil.example%2Fa.jpg&s=80",
+            "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Fusers%2Fabc%2Favatar&s=80",
+            "https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef?d=https%3A%2F%2Fplex.tv%2Favatars%2FF18052%2F31%2F3&s=80&x=1",
+            "https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.?x=1",
+            "https://assets.plex.tv.evil.example/avatars/0123456789abcdef0123456789abcdef01234567.",
+            "https://user@assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.",
+            "/avatars/F18052/31/3",
+            "//assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.",
+            "http://plex.tv/avatars/F18052/31/3",
+            "https://plex.tv/avatars/F18052/31/3/../4",
+        ] { assert!(avatar_hop_url(bad).is_none(), "{bad}"); }
+        let b = Bindings::default();
+        assert!(check(&u("https://plex.tv/avatars/F18052/31/3"), &Cred::PublicImage, &b).is_ok());
+        assert!(check(&u(asset), &Cred::PublicImage, &b).is_ok());
+        assert_eq!(check(&u(grav), &Cred::PublicImage, &b), Err(Deny::Host));
+        assert_eq!(check(&u("https://evil.example/a.jpg"), &Cred::PublicImage, &b), Err(Deny::Host));
+        assert_eq!(check(&u(asset), &Cred::Account, &b), Err(Deny::Host));
+        assert_eq!(check(&u("https://plex.tv/avatars/F18052/31/3"), &Cred::Account, &b), Err(Deny::Path));
+        assert_eq!(check(&u("https://assets.plex.tv/people/a.jpg"), &Cred::PublicImage, &b), Err(Deny::Path));
     }
 }

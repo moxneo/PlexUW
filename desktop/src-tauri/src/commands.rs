@@ -766,9 +766,9 @@ pub async fn proxy_request(p: &Arc<Plex>, method: &str, uri: &str, origin: Optio
     ProxyResp { status: 200, content_type: Some(ct), body: r.body, content_range: None }
 }
 
-/// Cast photo or account avatar (Sentinel, round 5): no token, allowlisted host, https:443,
-/// redirects refused (egress), jpeg/png/webp content types only, 5 MB cap.
-/// The URL is re-validated here; JS only had the opaque id.
+/// Cast photo or account avatar: no token, allowlisted host, https:443,
+/// jpeg/png/webp only, 5 MB cap. Cast photos refuse redirects. An account avatar
+/// may take one re-validated hop (`send_public_image`). JS only had the opaque id.
 pub const PUBLIC_IMAGE_MAX: usize = 5 * 1024 * 1024;
 async fn proxy_public(p: &Arc<Plex>, raw: &str) -> ProxyResp {
     let Some(url) = crate::plex::egress::parse_public_image(raw) else { return ProxyResp::deny(404) };
@@ -780,7 +780,7 @@ async fn proxy_public(p: &Arc<Plex>, raw: &str) -> ProxyResp {
             return ProxyResp { status: 200, content_type: Some(ct), body, content_range: None };
         }
     }
-    let r = match p.egress.send_capped(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::PublicImage, Duration::from_secs(15), PUBLIC_IMAGE_MAX).await {
+    let r = match p.egress.send_public_image(url, Duration::from_secs(15), PUBLIC_IMAGE_MAX).await {
         Ok(r) if r.status == 200 => r,
         Ok(_) | Err(_) => return ProxyResp::deny(502),
     };
@@ -874,7 +874,8 @@ mod t {
     async fn cast_photo_public_allowlist() {
         let dir = std::env::temp_dir().join(format!("plexuw-cdn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let p = fixture_plex(&dir);
+        let ft = std::sync::Arc::new(crate::plex::fixture::FixtureTransport::default());
+        let p = fixture_with(&dir, ft.clone());
         let get = |id: String| { let p = p.clone(); async move { proxy_request(&p, "GET", &format!("plexuw://localhost/img/{id}/120x120"), Some("tauri://localhost"), None, None).await } };
         let ok = p.images.register_public("https://metadata-static.plex.tv/people/fixture.jpg").expect("allowlisted");
         assert!(ok.len() == 32 && ok.bytes().all(|b| b.is_ascii_hexdigit()));
@@ -888,6 +889,16 @@ mod t {
         assert_eq!(get(av).await.status, 200);
         let bare = p.images.register_public("https://plex.tv/users/abc/avatar").expect("bare avatar");
         assert_eq!(get(bare).await.status, 200);
+        let asset = p.images.register_public("https://plex.tv/users/asset/avatar").expect("asset avatar");
+        assert_eq!(get(asset).await.status, 200);
+        for id in ["evil", "badd", "loop"] {
+            let hid = p.images.register_public(&format!("https://plex.tv/users/{id}/avatar")).unwrap();
+            assert_eq!(get(hid).await.status, 502, "{id}");
+        }
+        let log = ft.log();
+        assert!(log.iter().all(|l| !l.contains("evil.example") && !l.contains("i0.wp.com") && !l.contains("secure.gravatar.com")), "{log:?}");
+        assert!(log.iter().any(|l| l.contains("https://plex.tv/avatars/F18052/31/3") && !l.contains("token=")));
+        assert!(log.iter().any(|l| l.contains("assets.plex.tv/avatars/") && !l.contains("token=")));
         // Registration refuses everything outside the allowlist.
         for bad in [
             "http://metadata-static.plex.tv/people/a.jpg",
@@ -936,6 +947,10 @@ mod t {
         assert_eq!(check(&Url::parse("https://plex.tv/people/a.jpg").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
         assert_eq!(check(&Url::parse("https://plex.tv/api/v2/user").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
         assert_eq!(check(&Url::parse("https://plex.tv/users/abc/avatar?c=1&x=2").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
+        assert!(check(&Url::parse("https://plex.tv/avatars/F18052/31/3").unwrap(), &Cred::PublicImage, &b).is_ok());
+        assert!(check(&Url::parse("https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.").unwrap(), &Cred::PublicImage, &b).is_ok());
+        assert_eq!(check(&Url::parse("https://secure.gravatar.com/avatar/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap(), &Cred::PublicImage, &b), Err(Deny::Host));
+        assert_eq!(check(&Url::parse("https://assets.plex.tv/avatars/0123456789abcdef0123456789abcdef01234567.").unwrap(), &Cred::Account, &b), Err(Deny::Host));
     }
 
     #[cfg(feature = "mockplex")]

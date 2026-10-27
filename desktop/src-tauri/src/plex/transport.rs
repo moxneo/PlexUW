@@ -33,6 +33,8 @@ pub struct Resp {
     /// Only Content-Type is kept from upstream, plus Content-Range for a media 206 (§6a H1).
     pub content_type: Option<String>,
     pub content_range: Option<String>,
+    /// Location on a 3xx only. Callers must re-validate before any fetch. Never log it.
+    pub location: Option<String>,
 }
 
 pub type Fut<'a> = Pin<Box<dyn Future<Output = Result<Resp, String>> + Send + 'a>>;
@@ -88,6 +90,9 @@ impl Transport for Reqwest {
             // Errors carry the URL; callers pass them through `redact`.
             let resp = b.send().await.map_err(classify)?;
             let status = resp.status().as_u16();
+            let location = if (300..400).contains(&status) {
+                resp.headers().get(reqwest::header::LOCATION).and_then(|v| v.to_str().ok()).map(|s| s.chars().take(400).collect())
+            } else { None };
             let content_type = resp.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.chars().take(100).collect());
             let content_range = resp.headers().get(reqwest::header::CONTENT_RANGE).and_then(|v| v.to_str().ok()).and_then(|s| {
                 let s: String = s.chars().take(80).filter(|c| c.is_ascii() && !c.is_control()).collect();
@@ -99,7 +104,7 @@ impl Transport for Reqwest {
             while let Some(c) = resp.chunk().await.map_err(classify)? {
                 push_capped(&mut body, &c, r.max_body)?;
             }
-            Ok(Resp { status, body, content_type, content_range })
+            Ok(Resp { status, body, content_type, content_range, location })
         })
     }
 }
