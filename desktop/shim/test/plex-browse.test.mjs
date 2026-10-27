@@ -83,13 +83,15 @@ test('fu7e appendGrid: scrolling appends pages and never remounts existing tiles
 test('fu7e details: no Info panel, no ⋯ button; one Versions list; person + related wired', () => {
   assert.doesNotMatch(src, /panelBtn\(/);
   assert.match(src, /function chaptersSection\(it, g0\)/);
-  assert.match(src, /el\('h2', 'pxrowh', 'Chapters & Up Next'\)/);
+  assert.match(src, /el\('button', 'pxrowh pxchuph', 'Chapters & Up Next'\)/);
+  assert.match(src, /body\.hidden = true/);
+  assert.match(src, /aria-expanded', 'false'/);
   assert.match(src, /el\('p', 'pxsum pxbio', pv\.bio\)/);
   const itemFn = src.slice(src.indexOf('async function item('), src.indexOf('async function person('));
   const chAt = itemFn.indexOf('chaptersSection(it, g)');
   const playAt = itemFn.indexOf('playRow(it)');
   const credAt = itemFn.indexOf("el('h2', 'pxrowh'");
-  assert.ok(chAt !== -1 && playAt > chAt && credAt > playAt, 'Play row sits under Chapters & Up Next and before Credits');
+  assert.ok(chAt !== -1 && chAt > playAt && credAt > chAt, 'Chapters & Up Next sits under the action row and before Credits');
   assert.doesNotMatch(itemFn, /panelBtn\(|sidePanel\(|pxR/);
   assert.doesNotMatch(src, /rb\('more'/);
   assert.doesNotMatch(src, /infoPanel\(/);
@@ -212,6 +214,8 @@ test('expanded rail has no stuck native tooltip', () => {
   const home = src.slice(src.indexOf('async function home('), src.indexOf('async function section('));
   assert.doesNotMatch(home, /hi\.thumb \|\| hi\.art/);
   assert.match(src, /Math\.max\(240, menu\.offsetHeight \|\| 0\)/);
+  assert.match(src, /menu\.style\.left = '0px'/);
+  assert.match(src, /box\.right > right/);
 });
 test('parity tip: section hubs, play row, watch-together stub, no stream URI', () => {
   assert.match(src, /invoke\('browse_section_hubs'/);

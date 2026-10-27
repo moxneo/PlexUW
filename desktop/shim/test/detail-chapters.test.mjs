@@ -1,4 +1,4 @@
-// Detail page: Chapters & Up Next is a real section, and the action row sits under it.
+// Detail page: Chapters & Up Next starts collapsed under the action row.
 // Person page: a non-empty summary is the bio beside the face.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +34,7 @@ function invoke(cmd) {
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-test('actions render under Chapters & Up Next, and a summary fills the bio pane', async () => {
+test('Chapters & Up Next starts collapsed under the actions, and a summary fills the bio pane', async () => {
   assert.match(css, /\.pxperson\{display:grid;grid-template-columns:minmax\(160px,220px\) minmax\(0,1fr\)/);
   assert.match(css, /\.pxchup\{/);
   const dom = new JSDOM('<body><div id="nav"></div><main id="main"></main></body>', {
@@ -51,15 +51,23 @@ test('actions render under Chapters & Up Next, and a summary fills the bio pane'
   const doc = w.document;
   const sec = doc.querySelector('#pxView section.pxchup');
   assert.ok(sec, doc.querySelector('#pxView') ? doc.querySelector('#pxView').textContent.slice(0, 400) : 'no view');
-  assert.equal(sec.querySelector('h2').textContent, 'Chapters & Up Next');
+  const head = sec.querySelector('button.pxchuph');
+  assert.equal(head.textContent, 'Chapters & Up Next');
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  const chBody = sec.querySelector('.pxchupb');
+  assert.equal(chBody.hidden, true);
   assert.equal(sec.querySelectorAll('.chrow').length, 0, 'an empty chapter list still keeps the heading');
   const play = doc.querySelector('#pxView .pxround');
   assert.ok(play);
   const after = w.Node.DOCUMENT_POSITION_FOLLOWING;
-  assert.ok(sec.compareDocumentPosition(play) & after, 'action row follows the section');
+  assert.ok(play.compareDocumentPosition(sec) & after, 'section follows the action row');
   const credits = doc.querySelector('#pxView section.pxheads');
-  assert.ok(credits && (play.compareDocumentPosition(credits) & after), 'credits follow the action row');
-  assert.equal([...doc.querySelectorAll('button')].some(b => b.textContent.trim() === 'Chapters & Up Next'), false);
+  assert.ok(credits && (sec.compareDocumentPosition(credits) & after), 'credits follow the section');
+  const hash = w.location.hash;
+  head.click();
+  assert.equal(head.getAttribute('aria-expanded'), 'true');
+  assert.equal(chBody.hidden, false);
+  assert.equal(w.location.hash, hash);
   const labels = [...play.querySelectorAll('.pxrbl')].map(n => n.textContent);
   for (const lab of ['Play', 'Play from start', 'Mark watched', 'Watchlist · coming soon', 'More']) {
     assert.ok(labels.includes(lab), labels.join(' | '));

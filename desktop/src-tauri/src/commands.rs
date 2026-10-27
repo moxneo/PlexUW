@@ -766,9 +766,9 @@ pub async fn proxy_request(p: &Arc<Plex>, method: &str, uri: &str, origin: Optio
     ProxyResp { status: 200, content_type: Some(ct), body: r.body, content_range: None }
 }
 
-/// Cast photo from the plex.tv CDN (Sentinel, round 5): no token, exact host, https:443,
-/// strict .jpg/.png/.webp path without query, redirects refused (egress), jpeg/png/webp
-/// content types only, 5 MB cap. The URL is re-validated here; JS only had the opaque id.
+/// Cast photo or account avatar (Sentinel, round 5): no token, allowlisted host, https:443,
+/// redirects refused (egress), jpeg/png/webp content types only, 5 MB cap.
+/// The URL is re-validated here; JS only had the opaque id.
 pub const PUBLIC_IMAGE_MAX: usize = 5 * 1024 * 1024;
 async fn proxy_public(p: &Arc<Plex>, raw: &str) -> ProxyResp {
     let Some(url) = crate::plex::egress::parse_public_image(raw) else { return ProxyResp::deny(404) };
@@ -833,7 +833,12 @@ mod t {
         assert!(!js.contains("email") && !js.contains('@') && !js.contains("plexpass") && !js.contains("uuid") && !js.contains("metadata-static"));
         assert_eq!(account_card(&serde_json::json!({"username":"a@b.c","title":"ok"}), &img).name, "ok");
         assert_eq!(account_card(&serde_json::json!({"username":"https://evil.example/a","friendlyName":"no/slash"}), &img).name, "");
-        assert!(account_card(&serde_json::json!({"username":"moxneo","thumb":"https://plex.tv/users/abc/avatar?c=1"}), &img).thumb.is_none());
+        let av = account_card(&serde_json::json!({"username":"moxneo","thumb":"https://plex.tv/users/abc/avatar?c=1"}), &img);
+        assert_eq!(av.thumb.as_ref().unwrap().len(), 32);
+        let aj = serde_json::to_string(&av).unwrap();
+        assert!(!aj.contains("plex.tv") && !aj.contains("avatar") && !aj.contains('?'));
+        assert!(account_card(&serde_json::json!({"username":"moxneo","thumb":"https://plex.tv/users/abc/avatar?c=1&x=2"}), &img).thumb.is_none());
+        assert!(account_card(&serde_json::json!({"username":"moxneo","thumb":"https://evil.example/users/abc/avatar"}), &img).thumb.is_none());
     }
 
     fn iid(p: &Plex, rk: u64) -> String { p.slots.mint(Target::Item { mid: "fixturemachine0001".into(), rk }) }
@@ -878,12 +883,28 @@ mod t {
         assert_eq!((r.status, r.content_type), (200, Some("image/jpeg")));
         // Works regardless of the current server (it is not server data) and is cached.
         assert_eq!(get(ok).await.status, 200);
+        let av = p.images.register_public("https://plex.tv/users/abc/avatar?c=1").expect("avatar");
+        assert_eq!(av.len(), 32);
+        assert_eq!(get(av).await.status, 200);
+        let bare = p.images.register_public("https://plex.tv/users/abc/avatar").expect("bare avatar");
+        assert_eq!(get(bare).await.status, 200);
         // Registration refuses everything outside the allowlist.
         for bad in [
             "http://metadata-static.plex.tv/people/a.jpg",
             "https://metadata-static.plex.tv:8443/people/a.jpg",
             "https://metadata-static.plex.tv:443/people/a.jpg",
             "https://plex.tv/people/a.jpg",
+            "https://plex.tv/api/v2/user",
+            "https://plex.tv/users/abc/avatar?c=1&x=2",
+            "https://plex.tv/users/abc/avatar?c=1&X-Plex-Token=sekrit",
+            "https://plex.tv/users/abc/../avatar",
+            "https://plex.tv/users/abc/avatar?c=",
+            "https://plex.tv/users/%2e%2e/avatar",
+            "http://plex.tv/users/abc/avatar",
+            "https://plex.tv:8443/users/abc/avatar",
+            "https://plex.tv:443/users/abc/avatar",
+            "https://user@plex.tv/users/abc/avatar",
+            "https://evil.example/users/abc/avatar",
             "https://metadata-static.plex.tv.evil.example/people/a.jpg",
             "https://evil.example/metadata-static.plex.tv/a.jpg",
             "https://METADATA-STATIC.plex.tv/people/a.jpg",
@@ -911,6 +932,10 @@ mod t {
         assert_eq!(check(&Url::parse("https://plex.example.com/people/a.jpg").unwrap(), &Cred::PublicImage, &b), Err(Deny::Host));
         assert_eq!(check(&Url::parse("https://metadata-static.plex.tv/library/sections").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
         assert_eq!(check(&Url::parse("https://metadata-static.plex.tv/people/a.jpg").unwrap(), &Cred::Server("fixturemachine0001".into()), &b), Err(Deny::Host));
+        assert!(check(&Url::parse("https://plex.tv/users/abc/avatar?c=1").unwrap(), &Cred::PublicImage, &b).is_ok());
+        assert_eq!(check(&Url::parse("https://plex.tv/people/a.jpg").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
+        assert_eq!(check(&Url::parse("https://plex.tv/api/v2/user").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
+        assert_eq!(check(&Url::parse("https://plex.tv/users/abc/avatar?c=1&x=2").unwrap(), &Cred::PublicImage, &b), Err(Deny::Path));
     }
 
     #[cfg(feature = "mockplex")]

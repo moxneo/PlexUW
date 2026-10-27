@@ -165,7 +165,24 @@ impl Transport for FixtureTransport {
                 (Method::Get, "plex.tv", "/api/v2/user") => {
                     if tok.as_deref() != Some("acct") { return json(401, "{}".into()); }
                     if r.url.query().is_some() { return json(400, "{}".into()); }
-                    json(200, r#"{"id":7,"uuid":"not-for-js","email":"not-for-js@example.com","username":"moxneo","title":"Moxneo","friendlyName":"Mox","subscription":{"active":true},"thumb":"https://metadata-static.plex.tv/users/moxneo.jpg"}"#.into())
+                    json(200, r#"{"id":7,"uuid":"not-for-js","email":"not-for-js@example.com","username":"moxneo","title":"Moxneo","friendlyName":"Mox","subscription":{"active":true},"thumb":"https://plex.tv/users/abc/avatar?c=1"}"#.into())
+                }
+                // Account avatars: token-less, same class as CDN cast photos.
+                (Method::Get, "plex.tv", p)
+                    if p.strip_prefix("/users/").and_then(|s| s.strip_suffix("/avatar"))
+                        .is_some_and(|id| (1..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')) =>
+                {
+                    if tok.is_some() { return json(401, "{}".into()); }
+                    let q_ok = match r.url.query() {
+                        None => true,
+                        Some(q) => {
+                            let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
+                            pairs.len() == 1 && pairs[0].0 == "c" && (1..=32).contains(&pairs[0].1.len())
+                                && pairs[0].1.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                        }
+                    };
+                    if !q_ok { return json(404, "{}".into()); }
+                    Ok(Resp { status: 200, body: vec![0xFF; 64], content_type: Some("image/jpeg".into()), content_range: None })
                 }
                 (Method::Get, _, p) if super::egress::server_path(p, r.url.query()) || p == "/photo/:/transcode" => {
                     let q = r.url.query().unwrap_or("");

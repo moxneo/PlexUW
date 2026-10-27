@@ -599,7 +599,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     return box;
   }
 
-  // ---- Details. Chapters & Up Next is a section in the column; the action row sits under it.
+  // ---- Details. The action row comes first. Chapters & Up Next starts collapsed under it.
   const fmtRes = r => !r ? '' : /^\d+$/.test(r) ? r + 'p' : r.toUpperCase();
   const fmtSize = b => b == null ? '' : b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB';
   // fu7e: the left Info panel and its Info / ⋯ buttons are gone. Their unique content now
@@ -627,11 +627,15 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     return w;
   }
   function chaptersSection(it, g0) {
-    const sec = el('section', 'pxchup'); sec.appendChild(el('h2', 'pxrowh', 'Chapters & Up Next'));
+    const sec = el('section', 'pxchup');
+    const btn = el('button', 'pxrowh pxchuph', 'Chapters & Up Next'); btn.type = 'button'; btn.setAttribute('aria-expanded', 'false');
+    const body = el('div', 'pxchupb'); body.hidden = true;
+    btn.onclick = () => { const open = body.hidden; body.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+    sec.appendChild(btn); sec.appendChild(body);
     const chapters = it.chapters || [], markers = it.markers || [];
-    if (chapters.length) { sec.appendChild(el('h4', null, 'Chapters')); chapters.forEach((c, i) => { const r = el('div', 'chrow'); r.appendChild(el('b', 'pxtc', tc(c.startMs))); r.appendChild(el('span', null, c.title || 'Chapter ' + (i + 1))); sec.appendChild(r); }); }
-    if (markers.length) { const m = el('p', 'muted small'); m.textContent = markers.map(x => `${x.kind === 'credits' ? 'Credits' : 'Intro'} ${tc(x.startMs)}–${tc(x.endMs)}`).join(' · '); sec.appendChild(m); }
-    sec.appendChild(el('h4', null, 'Up Next')); const up = el('div', 'pxuplist'); sec.appendChild(up); const w = loading(up);
+    if (chapters.length) { body.appendChild(el('h4', null, 'Chapters')); chapters.forEach((c, i) => { const r = el('div', 'chrow'); r.appendChild(el('b', 'pxtc', tc(c.startMs))); r.appendChild(el('span', null, c.title || 'Chapter ' + (i + 1))); body.appendChild(r); }); }
+    if (markers.length) { const m = el('p', 'muted small'); m.textContent = markers.map(x => `${x.kind === 'credits' ? 'Credits' : 'Intro'} ${tc(x.startMs)}–${tc(x.endMs)}`).join(' · '); body.appendChild(m); }
+    body.appendChild(el('h4', null, 'Up Next')); const up = el('div', 'pxuplist'); body.appendChild(up); const w = loading(up);
     const add = list => { w.remove(); if (!list.length) { up.appendChild(el('p', 'muted small', 'Nothing queued.')); return; }
       list.slice(0, 12).forEach(x => { const a = el('a', 'up'); a.href = '#px/item/' + x.id; const pp = el('div', 'poster'); const src = img(x.thumb || x.art, 224, 126); if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.src = src; i.onerror = () => i.remove(); pp.appendChild(i); } a.appendChild(pp);
         const t = el('div'); t.appendChild(el('b', null, x.kind === 'episode' ? `E${x.index ?? '?'} · ${x.title}` : x.title)); t.appendChild(el('div', 'muted small', x.kind === 'episode' ? (x.grandparentTitle || '') : (x.year ?? ''))); a.appendChild(t); up.appendChild(a); }); };
@@ -768,10 +772,18 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   // Flip upward only when the viewport has more room above the button.
   function placeMenu(anchor, menu) {
     menu.classList.remove('up');
+    menu.style.left = '0px';
     const r = anchor.getBoundingClientRect();
     const below = (window.innerHeight || 0) - r.bottom;
     const need = Math.max(240, menu.offsetHeight || 0);
     if (below < need && r.top > below) menu.classList.add('up');
+    const box = menu.getBoundingClientRect();
+    const main = document.getElementById('main');
+    const right = Math.min(window.innerWidth || 0, main ? main.getBoundingClientRect().right : (window.innerWidth || 0)) - 8;
+    let dx = 0;
+    if (box.right > right) dx -= box.right - right;
+    if (box.left + dx < 8) dx += 8 - (box.left + dx);
+    if (dx) menu.style.left = dx + 'px';
   }
   async function item(id, g) {
     if (!ID.test(id)) return status('Not found');
@@ -821,9 +833,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     crow('Guest stars', guests.slice(0, 4).map(c => c.name).join(', '));
     crow(it.directors.length > 1 ? 'Directors' : 'Director', it.directors.join(', ')); crow(it.writers.length > 1 ? 'Writers' : 'Writer', it.writers.join(', '));
     if (cr.childNodes.length) tx.appendChild(cr);
-    tx.appendChild(chaptersSection(it, g));
     if (it.kind === 'movie' || it.kind === 'episode') tx.appendChild(playRow(it));
     else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn()); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
+    tx.appendChild(chaptersSection(it, g));
     if (it.cast.length) { const cs = el('section', 'pxheads'); cs.appendChild(el('h2', 'pxrowh', it.kind === 'episode' ? 'Cast & guest stars' : 'Credits')); const r = el('div', 'pxheadrow');
       it.cast.slice(0, 20).forEach(x => { const p = el(ID.test(x.id || '') ? 'a' : 'button', 'pxcred'); p.title = x.name; if (p.tagName === 'A') { p.href = '#px/person/' + x.id; p.onclick = e => { e.preventDefault(); openPerson(p, x.id, it); }; } else { p.type = 'button'; p.onclick = () => openPersonLocal(p, x, it); } const av = el('i', null, x.name.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2)); const ps = img(x.thumb, 240, 240); if (ps) { const pi = el('img'); pi.alt = ''; pi.loading = 'lazy'; pi.src = ps; pi.onerror = () => pi.remove(); av.appendChild(pi); } p.appendChild(av); p.appendChild(el('b', null, x.name)); p.appendChild(el('span', 'muted small', x.role)); r.appendChild(p); });
       cs.appendChild(r); d.appendChild(cs); }

@@ -27,28 +27,54 @@ pub fn discover_person_path(p: &str) -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-/// `PublicImage`: token-less fetch of a cast photo from the plex.tv CDN (Sentinel, round 5).
+/// `PublicImage`: token-less fetch of a CDN cast photo or a plex.tv account avatar.
 pub enum Cred { None, Account, Server(String), PublicImage }
 
-/// The only external image host. Exact match, https, port 443.
+/// CDN cast photos. Account avatars are the other PublicImage host (`plex.tv`).
 pub const PUBLIC_IMAGE_HOST: &str = "metadata-static.plex.tv";
 
-/// Cast-photo URL allowlist: exact host, https:443, no userinfo/query/fragment,
-/// path of safe segments ending .jpg/.png/.webp, no dot-segments.
-pub fn public_image_ok(u: &Url) -> bool {
+fn public_image_host(u: &Url) -> bool {
+    u.port().is_none() && u.port_or_known_default() == Some(443)
+        && matches!(u.host_str(), Some(PUBLIC_IMAGE_HOST) | Some("plex.tv"))
+}
+
+fn cdn_image_path(u: &Url) -> bool {
     use std::sync::OnceLock;
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"^(/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}){1,8}\.(jpg|png|webp)$").unwrap());
-    u.scheme() == "https" && u.username().is_empty() && u.password().is_none()
-        && u.host_str() == Some(PUBLIC_IMAGE_HOST) && u.port().is_none() && u.port_or_known_default() == Some(443)
-        && u.query().is_none() && u.fragment().is_none()
-        && u.path().len() <= 300 && re.is_match(u.path()) && !u.path().split('/').any(|s| s == ".." || s == ".")
+    u.query().is_none() && re.is_match(u.path())
 }
 
-/// Parse a raw metadata string as a cast-photo URL; refuses anything the URL parser
+/// `/users/<id>/avatar` with no query, or exactly one `c` cache-buster.
+fn avatar_image(u: &Url) -> bool {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"^/users/[A-Za-z0-9_-]{1,64}/avatar$").unwrap());
+    if !re.is_match(u.path()) { return false; }
+    let Some(q) = u.query() else { return true };
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
+    pairs.len() == 1 && pairs[0].0 == "c" && (1..=32).contains(&pairs[0].1.len())
+        && pairs[0].1.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+/// Token-less image allowlist: CDN cast photos, and `https://plex.tv/users/<id>/avatar`.
+/// https:443, no userinfo/fragment/dot-segments. CDN paths end .jpg/.png/.webp with no query.
+pub fn public_image_ok(u: &Url) -> bool {
+    u.scheme() == "https" && u.username().is_empty() && u.password().is_none()
+        && u.fragment().is_none() && u.path().len() <= 300
+        && !u.path().split('/').any(|s| s == ".." || s == ".")
+        && public_image_host(u)
+        && match u.host_str() {
+            Some(PUBLIC_IMAGE_HOST) => cdn_image_path(u),
+            Some("plex.tv") => avatar_image(u),
+            _ => false,
+        }
+}
+
+/// Parse a raw metadata string as a public image URL; refuses anything the URL parser
 /// would normalise (so what we validate is byte-for-byte what we fetch).
 pub fn parse_public_image(raw: &str) -> Option<Url> {
-    if raw.len() > 400 || raw.contains(['\\', '%', '@', '?', '#']) { return None; }
+    if raw.len() > 400 || raw.contains(['\\', '%', '@', '#']) { return None; }
     let u = Url::parse(raw).ok()?;
     (u.as_str() == raw && public_image_ok(&u)).then_some(u)
 }
@@ -160,7 +186,7 @@ pub fn check(u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
             if !server_path(p, u.query()) { return Err(Deny::Path); }
         }
         Cred::PublicImage => {
-            if u.host_str() != Some(PUBLIC_IMAGE_HOST) { return Err(Deny::Host); }
+            if !public_image_host(u) { return Err(Deny::Host); }
             if !public_image_ok(u) { return Err(Deny::Path); }
         }
         Cred::None => {

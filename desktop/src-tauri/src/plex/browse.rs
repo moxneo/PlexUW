@@ -193,7 +193,7 @@ impl Images {
         let path = canonical_image_path(path)?;
         Some(self.put(mid, path))
     }
-    /// Register a plex.tv-CDN cast photo (validated by `egress::parse_public_image`).
+    /// Register a token-less public image (validated by `egress::parse_public_image`).
     /// Stored under the reserved machine id `PUBLIC_MID`; JS only ever sees the opaque id.
     pub fn register_public(&self, raw: &str) -> Option<String> {
         let u = crate::plex::egress::parse_public_image(raw)?;

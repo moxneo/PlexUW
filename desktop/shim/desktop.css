@@ -101,6 +101,10 @@ body.navc #pxNav{align-items:center}body.navc #pxNav a{width:3rem;height:2.75rem
 .pxgenre{font-size:13px;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);color:#eef1f6}
 .pxacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .pxchup{margin:18px 0 4px}.pxchup>.pxrowh{font-size:1.15rem;font-weight:600;margin:0 0 10px}
+.pxchup>button.pxchuph{display:flex;align-items:center;width:100%;text-align:left;background:none;border:0;padding:0;color:inherit;font:inherit;cursor:pointer}
+.pxchup>button.pxchuph::after{content:"";width:.45em;height:.45em;margin-left:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg) translateY(-1px)}
+.pxchup>button.pxchuph[aria-expanded="true"]::after{transform:rotate(45deg) translateY(-1px)}
+.pxchupb[hidden]{display:none!important}
 .pxchup h4{margin:12px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9aa3b5}
 .pxchup .pxtc{font-variant-numeric:tabular-nums;min-width:4.2em;color:#f3c35a}
 .pxchup .up{display:flex;gap:10px;align-items:center;color:inherit;text-decoration:none;padding:4px 0}
