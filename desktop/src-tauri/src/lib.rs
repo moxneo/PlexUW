@@ -89,8 +89,57 @@ fn restore(win: &WebviewWindow, st: &WinState) {
         }
     }
     if st.maximized { let _ = win.maximize(); }
-    if st.fullscreen { let _ = win.set_fullscreen(true); }
+    if st.fullscreen {
+        let _ = win.set_fullscreen(true);
+        cover_taskbar(win, true);
+    }
 }
+
+/// Windows undecorated fullscreen is sized to the work area and keeps WS_THICKFRAME,
+/// which leaves a black strip where the taskbar sits. Cover the full monitor rect.
+#[cfg(windows)]
+fn cover_taskbar(win: &WebviewWindow, enter: bool) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, HWND_TOP,
+        MONITOR_DEFAULTTONEAREST, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_THICKFRAME,
+    };
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static SAVED: Mutex<Option<isize>> = Mutex::new(None);
+    if BUSY.swap(true, Ordering::SeqCst) { return; }
+    let Ok(handle) = win.window_handle() else { BUSY.store(false, Ordering::SeqCst); return; };
+    let RawWindowHandle::Win32(raw) = handle.as_raw() else { BUSY.store(false, Ordering::SeqCst); return; };
+    let hwnd = raw.hwnd.get() as HWND;
+    let mask = (WS_CAPTION | WS_THICKFRAME | WS_BORDER | WS_DLGFRAME) as isize;
+    unsafe {
+        if enter {
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            let mut saved = SAVED.lock().unwrap_or_else(|e| e.into_inner());
+            if saved.is_none() { *saved = Some(style); }
+            let base = (*saved).unwrap_or(style);
+            drop(saved);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, base & !mask);
+            let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            let mut mi: MONITORINFO = std::mem::zeroed();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if GetMonitorInfoW(mon, &mut mi) != 0 {
+                let r = mi.rcMonitor;
+                SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+        } else if let Some(style) = SAVED.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
+        }
+    }
+    BUSY.store(false, Ordering::SeqCst);
+}
+
+#[cfg(not(windows))]
+fn cover_taskbar(_win: &WebviewWindow, _enter: bool) {}
 
 /// Sentinel INFO-2: window-control failures return one fixed category; the
 /// platform error text is never passed to the UI.
@@ -122,7 +171,9 @@ fn win_close(app: AppHandle) -> Result<(), String> { main_win(&app)?.close().map
 fn win_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     let w = main_win(&app)?;
     let f = !w.is_fullscreen().map_err(win_err)?;
+    if !f { cover_taskbar(&w, false); }
     w.set_fullscreen(f).map_err(win_err)?;
+    if f { cover_taskbar(&w, true); }
     Ok(f)
 }
 
@@ -245,7 +296,11 @@ pub fn run() {
                 });
             }
             let w2 = win.clone();
-            win.on_window_event(move |e| match e {
+            win.on_window_event(move |e| {
+                if matches!(e, WindowEvent::Resized(_)) && w2.is_fullscreen().unwrap_or(false) {
+                    cover_taskbar(&w2, true);
+                }
+                match e {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } => {
                     let app = w2.app_handle();
                     let saved = app.state::<Saved>();
@@ -254,7 +309,7 @@ pub fn run() {
                     persist(app, &g);
                 }
                 _ => {}
-            });
+            }});
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -271,5 +326,14 @@ mod win_err_tests {
         let src = include_str!("lib.rs");
         let body = &src[src.find("fn win_minimize").unwrap()..src.find("fn win_state").unwrap()];
         assert!(!body.contains(concat!("e.to_", "string()")), "window commands must not forward raw error text");
+    }
+
+    #[test]
+    fn fullscreen_covers_the_monitor() {
+        let src = include_str!("lib.rs");
+        assert!(src.contains("rcMonitor"), "fullscreen must use the full monitor rect");
+        assert!(!src.contains(concat!("rc", "Work")), "the work area is what leaves the taskbar strip");
+        assert!(src.contains("WS_THICKFRAME"));
+        assert!(src.contains("fn cover_taskbar"));
     }
 }

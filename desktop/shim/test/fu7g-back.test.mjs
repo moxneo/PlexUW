@@ -40,32 +40,29 @@ async function loadApp(appSrc) {
   PB.setSource({ kind: 'plex', server: 'Fixture' });
   await W(200);
   const userScroll = y => { main.scrollTop = y; main.dispatchEvent(new w.Event('scroll')); };
-  const btn = c => w.document.querySelector('.pxbkb.' + c);
-  return { w, main, userScroll, btn, seen, get top() { return st; } };
+  return { w, main, userScroll, seen, get top() { return st; } };
 }
 
 async function journey(app) {
-  const { w, userScroll, btn } = app;
+  const { w, userScroll } = app;
   userScroll(1800);                                   // scroll the library to 1800 px
-  w.location.hash = '#px/item/abc'; await W(250); const opened = app.top; const fw1 = btn('fwd').disabled;
+  w.location.hash = '#px/item/abc'; await W(250); const opened = app.top;
   userScroll(250);                                    // scroll the title page
-  btn('back').click(); await W(350); const afterBack = app.top, hBack = w.location.hash, fw2 = btn('fwd').disabled;
-  btn('fwd').click(); await W(350); const afterFwd = app.top;
-  btn('back').click(); await W(350); const afterBack2 = app.top;
+  w.history.back(); await W(350); const afterBack = app.top, hBack = w.location.hash;
+  w.history.forward(); await W(350); const afterFwd = app.top;
+  w.history.back(); await W(350); const afterBack2 = app.top;
   w.close();
-  return { opened, afterBack, hBack, afterFwd, afterBack2, fw1, fw2 };
+  return { opened, afterBack, hBack, afterFwd, afterBack2 };
 }
 
-test('fu7h MUST-1: real app.js route()/sPost + real plex-browse route(): top-bar Back restores 1800 px, Forward restores the title page', async () => {
+test('fu7h MUST-1: real app.js route()/sPost + real plex-browse route(): history Back restores 1800 px, Forward restores the title page', async () => {
   const app = await loadApp(readFileSync(join(root, 'app.js'), 'utf8'));
   assert.deepEqual(app.seen.slice(0, 2), ['route', 'sPost'], 'app.js registers its real route() and sPost first');
   assert.equal(app.seen[2], 'route', 'then plex-browse registers its real route()');
   const r = await journey(app);
   assert.equal(r.opened, 0, 'a new page opens at the top');
-  assert.equal(r.fw1, true, 'Forward disabled on a new page');
   assert.equal(r.hBack, '#px/sec/1');
   assert.equal(r.afterBack, 1800, 'Back restores 1800 px');
-  assert.equal(r.fw2, false, 'Forward enabled after Back');
   assert.equal(r.afterFwd, 250, 'Forward restores the title page scroll');
   assert.equal(r.afterBack2, 1800, 'Back again still restores 1800 px');
 });
@@ -95,7 +92,7 @@ test('fu7g: Forward is disabled until there is forward history; a new page trunc
   hist.i = 2; sm.enter(); assert.equal(sm.canForward, false, 'after Forward to the end');
   hist.i = 1; sm.enter(); hist.push(); sm.enter(); assert.equal(sm.canForward, false, 'a new page after Back drops forward history');
   const b = readFileSync(join(here, '..', 'plex-browse.js'), 'utf8');
-  assert.match(b, /fwb\.disabled = !sm\.canForward;/);
+  assert.doesNotMatch(b, /pxbkb/);
   assert.match(b, /else if \(sm\.canForward\) history\.forward\(\);/);
 });
 

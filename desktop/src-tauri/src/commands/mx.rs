@@ -25,7 +25,7 @@ type Key = (String, String); // (request key, machineId)
 struct Cache {
     epoch: u64,
     done: HashMap<Key, (Instant, Option<Value>)>,
-    inflight: HashSet<Key>,
+    inflight: HashMap<Key, Instant>,
     /// Failed attempts that were not stored in `done`. The second failure settles.
     misses: HashMap<Key, u8>,
 }
@@ -106,8 +106,8 @@ pub async fn gather(p: &Arc<Plex>, key: &str, api: Api, servers: &[Server]) -> R
         if c.done.len() > 2000 { c.done.retain(|_, (t, _)| t.elapsed() < TTL); }
         for s in servers {
             let k = (key.to_string(), s.machine_id.clone());
-            if c.done.get(&k).is_some_and(|(t, _)| t.elapsed() < TTL) || c.inflight.contains(&k) { continue; }
-            c.inflight.insert(k.clone());
+            if c.done.get(&k).is_some_and(|(t, _)| t.elapsed() < TTL) || c.inflight.contains_key(&k) { continue; }
+            c.inflight.insert(k.clone(), Instant::now());
             let (p2, s2, api2) = (p.clone(), s.clone(), api.clone());
             tokio::spawn(async move {
                 let guid_scan = matches!(api2, Api::ByGuid { .. });
@@ -147,9 +147,19 @@ pub async fn gather(p: &Arc<Plex>, key: &str, api: Api, servers: &[Server]) -> R
             });
         }
     }
+    // A later caller must not restart the soft clock for a server that is already late.
     loop {
-        let all = { let c = p.mx.cache.lock().unwrap(); servers.iter().all(|s| c.done.contains_key(&(key.to_string(), s.machine_id.clone()))) };
-        if all || t0.elapsed() >= SOFT { break; }
+        let ready = {
+            let c = p.mx.cache.lock().unwrap();
+            let now = Instant::now();
+            servers.iter().all(|s| {
+                let k = (key.to_string(), s.machine_id.clone());
+                if c.done.contains_key(&k) { return true; }
+                let started = c.inflight.get(&k).copied().unwrap_or(t0);
+                now.saturating_duration_since(started) >= SOFT
+            })
+        };
+        if ready { break; }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     if p.slots.epoch() != ep { return Err("stale".into()); }
@@ -399,12 +409,26 @@ pub async fn facets(p: &Arc<Plex>, id: &str, facet: Facet) -> Result<Vec<browse:
 }
 
 pub async fn section_hubs(p: &Arc<Plex>, id: &str) -> Result<Vec<browse::Hub>, String> {
+    // Same soft deadline and cache as Home. fetch_on waited on every server until the
+    // 5 s hard cap, so Movies / TV stayed blank for ~6 s when one server was slow.
     let srcs = lib_sources(p, id).await?;
     let ep = p.slots.epoch();
-    let img = p.images.fork();
-    let futs = srcs.iter().map(|x| async move { fetch_on(p, &x.s.machine_id, &Api::SectionHubs(x.sec)).await.ok() });
+    let futs = srcs.iter().map(|x| {
+        let key = format!("sechubs\0{}\0{}", x.s.machine_id, x.sec);
+        let api = Api::SectionHubs(x.sec);
+        let srv = vec![x.s.clone()];
+        async move { gather(p, &key, api, &srv).await }
+    });
     let res = futures::future::join_all(futs).await;
-    let per = srcs.iter().zip(res).filter_map(|(x, v)| v.map(|v| raw_hubs(&v).into_iter().map(|(t, i, items)| (t, i, rows_of(items.into_iter(), x.rank, &x.s, &img, p, ep))).collect())).collect();
+    let img = p.images.fork();
+    let mut per = vec![];
+    for (x, g) in srcs.iter().zip(res) {
+        let g = g?;
+        if g.ep != ep { return Err("stale".into()); }
+        for (_, s, v) in g.got {
+            per.push(raw_hubs(&v).into_iter().map(|(t, i, items)| (t, i, rows_of(items.into_iter(), x.rank, &s, &img, p, ep))).collect());
+        }
+    }
     let out = mg::merge_hubs(per, 24);
     if p.slots.epoch() != ep || !p.images.commit(img) { return Err("stale".into()); }
     Ok(out)
@@ -704,6 +728,28 @@ mod t {
         let it = browse_item_inner(&p, &id).await.unwrap();
         assert!(!it.versions_pending, "second miss settles");
         assert!(it.versions.iter().all(|v| v.server == "MoxBox"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn section_hubs_include_recently_added() {
+        let (p, dir) = three("hubsfast", FixtureTransport::default()).await;
+        let h = home(&p).await.unwrap();
+        let id = h.sections.iter().find(|s| s.kind == "movie").unwrap().id.clone();
+        let hubs = section_hubs(&p, &id).await.unwrap();
+        assert!(hubs.iter().any(|x| x.title.contains("Recently Added")), "{:?}", hubs.iter().map(|x| x.title.as_str()).collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A slow server must not hold the library landing until the 5 s hard cap.
+    #[tokio::test]
+    async fn section_hubs_return_at_the_soft_deadline() {
+        let (p, dir) = three("hubslow", FixtureTransport { slow_ms: 6000, ..Default::default() }).await;
+        let h = home(&p).await.unwrap();
+        let id = h.sections.iter().find(|s| s.kind == "movie").unwrap().id.clone();
+        let t = Instant::now();
+        section_hubs(&p, &id).await.unwrap();
+        assert!(t.elapsed() < Duration::from_millis(2200), "hubs waited {:?}", t.elapsed());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,46 +1,7 @@
-SHA: 78f96067410d429d138330b79580e304b03291c9
-branch: cursor/live-versions-home-nav-8486
-archive: git archive 78f96067410d429d138330b79580e304b03291c9 (full tip tree)
+SHA: 0a3f01af4f0e4ecd9145205a9e673dc8898fecf6
+branch: cursor/next-push-ui-15ca (Origin PR#3; stacked on cursor/live-versions-home-nav-8486 @ 78f9606)
+archive: tip.bundle / plexuw-tip.tar.gz from Foreman @ /home/box/plexuw-artifacts/0a3f01af/ (not committed into GitHub)
 desktop/: present
+README.md, SOURCE-STATUS.md, LEGACY-USERSCRIPT.md: present
 
-tar tzf artifacts/plexuw-tip.tar.gz | head -40
-LEGACY-USERSCRIPT.md
-LESSONS.md
-README.md
-RELEASE-NOTES.md
-SOURCE-STATUS.md
-app.js
-artifacts/
-artifacts/TIP-SHA.txt
-artifacts/VERIFY.txt
-artifacts/plexuw-tip.tar.gz
-artifacts/tip-6b370e9/
-artifacts/tip-6b370e9/SHA256SUMS
-artifacts/tip-6b370e9/SHA256SUMS.upstream
-artifacts/tip-6b370e9/smoke/
-artifacts/tip-6b370e9/smoke/10_about.png
-artifacts/tip-6b370e9/smoke/20_cruise_person_modal.png
-artifacts/tip-6b370e9/smoke/21_cruise_person_modal_b.png
-artifacts/tip-6b370e9/smoke/22_bio_gap_more.png
-assets/
-assets/icons.svg
-assets/sprite.jpg
-brand/
-brand/plexuw-icon.svg
-brand/plexuw-lockup-dark.svg
-data.js
-desktop/
-desktop/.gitignore
-desktop/package-lock.json
-desktop/package.json
-desktop/shim/
-desktop/shim/cold-start.js
-desktop/shim/desktop.css
-desktop/shim/desktop.js
-desktop/shim/lint-shim.sh
-desktop/shim/plex-browse.js
-desktop/shim/px-icons.js
-desktop/shim/test/
-desktop/shim/test/fu7f-modal.test.mjs
-desktop/shim/test/fu7f-nav.test.mjs
-desktop/shim/test/fu7g-back.test.mjs
+Synced: 2026-10-27 ~12:50 AM America/New_York

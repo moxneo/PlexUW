@@ -12,7 +12,7 @@ globalThis.navigator ??= { userAgent: 'node' };
 const tmp = join(mkdtempSync(join(tmpdir(), 'pxb-')), 'plex-browse.mjs');
 writeFileSync(tmp, src);
 writeFileSync(join(dirname(tmp), 'px-icons.js'), readFileSync(join(here, '..', 'px-icons.js'), 'utf8'));
-const { missingLibraryText, cwMeter } = await import(tmp);
+const { missingLibraryText, cwMeter, cardArt } = await import(tmp);
 const WHY = { unreachable: 'None of this server’s addresses answered.', timeout: 'The server took too long to answer.' };
 const why = e => WHY[String(e)] || 'Something went wrong. Try again.';
 
@@ -125,8 +125,21 @@ test('home hero is continue-watching chrome and is not repeated as a strip card'
   assert.match(src, /classList\.add\('pxpast'\)/);
   assert.match(src, /classList\.remove\('pxpast'\)/);
   assert.match(src, /x\.id === hi\.id\) return false/);
-  assert.match(src, /row\('Continue Watching', cwAll\.filter\(notHi\)\)/);
+  assert.match(src, /row\('Continue Watching', cwAll\.filter\(notHi\), false, true\)/);
   assert.match(src, /export function cwMeter\(it\)/);
+});
+test('episode cards: continue watching keeps the still; small TV cards use the series cover', () => {
+  const ep = { kind: 'episode', thumb: 'still', art: 'fan', poster: 'cover' };
+  assert.equal(cardArt(ep, false, true), 'still');
+  assert.equal(cardArt(ep, true, false), 'still');
+  assert.equal(cardArt(ep, false, false), 'cover');
+  assert.equal(cardArt({ kind: 'show', poster: 'p', thumb: 't', art: 'a' }, false, false), 'p');
+  assert.match(src, /row\('Next Up', odAll\.filter\(notHi\), false, true\)/);
+  assert.match(src, /img\(it\.poster \|\| it\.thumb \|\| it\.art, 260, 390\)/);
+  assert.match(src, /export function cardArt\(it, wide, still\)/);
+  const home = src.slice(src.indexOf('async function home('), src.indexOf('async function section('));
+  assert.match(home, /img\(hi\.poster, 420, 630\)/);
+  assert.doesNotMatch(home, /hi\.thumb \|\| hi\.art/);
 });
 test('cw meter shows a track and time left when playback has not reported an offset', () => {
   const fresh = cwMeter({ viewOffsetMs: 0, durationMs: 17 * 60000 });

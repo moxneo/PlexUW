@@ -93,7 +93,10 @@ test('fu7f wiring: no raw loading text, back control, fade-in posters, show-page
   assert.match(src, /function loading\(target\) \{[^\n]*aria-label', 'Loading'[^\n]*pxsk/);
   assert.match(src, /pm\.close\(false\); sm\.save\(\); const back = sm\.enter\(\);[^\n]*swap\.begin\(\)/);
   assert.match(src, /swap\.end\(\);\n\s*if \(back != null\) restoreScroll\(back, g\);/);
-  assert.match(src, /'Back \(Alt\+Left\)'/); assert.match(src, /addEventListener\('mouseup'/);
+  assert.match(src, /if \(d === 'back'\) \{ if \(sm\.index > 0\) history\.back\(\)/);
+  assert.match(src, /else if \(sm\.canForward\) history\.forward\(\)/);
+  assert.doesNotMatch(src, /pxbkb/);
+  assert.match(src, /addEventListener\('mouseup'/);
   assert.match(src, /i\.className = 'pxfade'; i\.onload = \(\) => i\.classList\.add\('in'\)/);
   assert.match(css, /\.pxcard \.poster img\.pxfade\{opacity:0;transition:opacity/);
   // credits without a person id (seen on some show pages) still open the popover

@@ -62,7 +62,7 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   {const sw=(sel,n)=>{const h=document.querySelector(sel);if(!h)return;const o=h.querySelector('svg');o?o.replaceWith(pxIcon(n)):h.prepend(pxIcon(n))};
    sw('.brand .logo','mark');sw('#askBtn','ask');
    const ab=document.getElementById('askBtn');if(ab){const t=ab.querySelector('span');if(t)t.textContent='Ask your library';ab.setAttribute('aria-label','Ask your library (Ctrl+K)');ab.setAttribute('aria-keyshortcuts','Control+K');ab.title='Search or ask your library (Ctrl+K)'}
-   const pr=document.querySelector('.profile .av');if(pr){pr.setAttribute('aria-hidden','true');if(!pr.childNodes.length)pr.appendChild(pxIcon('mark'))}}
+   const set=document.querySelector('.profile .pxset');if(set&&!set.querySelector('svg'))set.appendChild(pxIcon('gear'))}
   // fu6 QA LOW-1: demo-mode rail (app.js #nav) uses the same px icon set; collections/playlists get an initial so they differ.
   {const nav=document.getElementById('nav');const DI=r=>r==='#home'?'home':r==='#settings'?'gear':/^#lib\/collections\//.test(r)?'folder':/^#lib\//.test(r)?'film':/^#tv\//.test(r)?'tv':/^#music\/playlist/.test(r)?'playlist':/^#music\//.test(r)?'music':'';
    const fix=()=>{if(!nav)return;nav.querySelectorAll('a[data-r]').forEach(a=>{const n=DI(a.dataset.r);const o=a.querySelector('svg');if(!n||!o||o.classList.contains('pxi'))return;o.replaceWith(pxIcon(n));
@@ -250,22 +250,15 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     const note=document.querySelector('#aiProvider .note');if(note)note.textContent='Mock: the key is kept in the OS keychain (Credential Manager / Keychain / Secret Service), never in localStorage, never logged, put in a URL or sent anywhere. Test connection returns a mock result without any network request.';})();
   // Scrollbars fade in while a container scrolls (CSS shows them on hover too).
   {const tm=new WeakMap();document.addEventListener('scroll',e=>{const t=e.target===document?document.documentElement:e.target;if(!(t instanceof Element))return;t.classList.add('px-scrolling');clearTimeout(tm.get(t));tm.set(t,setTimeout(()=>t.classList.remove('px-scrolling'),900))},{capture:true,passive:true});}
-  // Profile links stay in-app. Account settings scrolls to the paired server card; personal settings is local playback prefs.
+  // Connect dialog still scrolls to the paired-server card. The rail has one Settings link.
   function openAccount(){location.hash='#settings';setTimeout(()=>document.getElementById('pxAccount')?.scrollIntoView({block:'start'}),250)}
-  document.querySelector('.profile .pxacct')?.addEventListener('click',e=>{e.preventDefault();openAccount()});
-  document.querySelector('.profile .pxpers')?.addEventListener('click',e=>{e.preventDefault();location.hash='#settings';setTimeout(()=>document.getElementById('playSet')?.scrollIntoView({block:'start'}),250)});
   function paintAccount(){
-    const av=document.querySelector('.profile .av'), nm=document.querySelector('.profile .pxname');
-    if(!av||!nm) return;
-    const mark=()=>{av.textContent='';av.appendChild(pxIcon('mark'))};
+    const nm=document.querySelector('.profile .pxname');
+    if(!nm) return;
     invoke('account_me').then(c=>{
-      const name=c&&typeof c.name==='string'?c.name:'';
-      nm.textContent=name;
-      av.textContent='';
-      const u=c&&typeof c.thumb==='string'?img(c.thumb,64,64):null;
-      if(!u){mark();return}
-      const i=document.createElement('img');i.alt='';i.src=u;i.onerror=()=>mark();av.appendChild(i);
-    }).catch(()=>{if(!nm.textContent)nm.textContent='';if(!av.querySelector('img,svg'))mark()});
+      const name=c&&typeof c.name==='string'?c.name.trim():'';
+      nm.textContent=name||'Plex';
+    }).catch(()=>{nm.textContent='Plex'});
   }
   // Real library playback. The webview never XHRs plexuw://; playlists and segments
   // come back through opaque_get. A failure clears the video element.
@@ -370,7 +363,7 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
         setTimeout(()=>{const d=document.querySelector('.pxpm:not([hidden]) [role=dialog]');const ok=!!d&&d.getAttribute('aria-modal')==='true'&&m.scrollTop===s0&&location.hash===h0&&d.contains(document.activeElement)&&getComputedStyle(m).overflowY==='hidden';fu7fBadge(ok,'popover open · role=dialog aria-modal · page scroll '+s0+'→'+m.scrollTop+' · hash unchanged · focus in dialog · bg scroll locked')},2500)},4500);
       const rawLoad=()=>{const t=[document.getElementById('pxView'),...document.querySelectorAll('.pxghost')].map(n=>n?n.textContent:'').join(' ');return /loading/i.test(t)};
       if(scene==='fu7fnav')setTimeout(()=>{const m=document.getElementById('main');m.scrollTop=420;window.__pxNavDelay=600000;let raw=false;const mo=new MutationObserver(()=>{raw=raw||rawLoad()});mo.observe(document.body,{subtree:true,childList:true,characterData:true});location.hash='#px/item/1013';
-        setTimeout(()=>{const g=document.querySelector('.pxghost');const bb=document.querySelector('.pxbkb.back');const ok=!!g&&getComputedStyle(g).opacity==='1'&&g.textContent.length>50&&!raw&&!rawLoad()&&bb&&!bb.disabled;fu7fBadge(ok,'mid-navigation · old page held ('+(g?'snapshot':'none')+') · raw loading text seen: '+raw+' · Back enabled: '+!!(bb&&!bb.disabled))},1500)},4500);
+        setTimeout(()=>{const g=document.querySelector('.pxghost');const ok=!!g&&getComputedStyle(g).opacity==='1'&&g.textContent.length>50&&!raw&&!rawLoad();fu7fBadge(ok,'mid-navigation · old page held ('+(g?'snapshot':'none')+') · raw loading text seen: '+raw)},1500)},4500);
       if(scene==='fu7ftvload'){let raw=false,sk=false;const mo=new MutationObserver(()=>{raw=raw||rawLoad();sk=sk||!!document.querySelector('#pxView .pxload .pxsk,#pxView .pxph')});mo.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true});
         setTimeout(()=>{const im=[...document.querySelectorAll('#pxView .pxcard .poster img')];const fd=im.filter(i=>i.classList.contains('pxfade')),inn=fd.filter(i=>i.classList.contains('in'));const ph=document.querySelector('#pxView .pxload .pxsk');const ok=im.length>0&&fd.length===im.length&&!raw&&sk;fu7fBadge(ok,'TV library · styled skeleton seen: '+sk+' · raw loading text seen: '+raw+' · posters with fade-in '+fd.length+'/'+im.length+', faded in '+inn.length)},6000)}
       if(scene==='fu7fskeleton')setTimeout(()=>{window.__pxDelay=600000;const m=document.getElementById('main');let n=0;const step=()=>{const ph=document.querySelector('.pxvgrid .pxph');if(ph&&ph.getBoundingClientRect().top<m.clientHeight*0.6||n++>40){
@@ -380,24 +373,17 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
       // fu7g MUST-1 scene: scroll the library to 1800 px, open a title, press the app Back button; badge shows the restored scroll.
       if(scene==='fu7gback')setTimeout(async()=>{const W=ms=>new Promise(r=>setTimeout(r,ms));const m=document.getElementById('main');if(!m)return fu7fBadge(false,'no main');
         for(let i=0;i<20&&m.scrollTop<1800;i++){m.scrollTop=1800;await W(400)}const y0=m.scrollTop;await W(800);
-        const c=document.querySelector('#pxView .pxcard:not(.pxph) a, #pxView a.pxcard, #pxView .pxcard');c&&c.click();await W(3000);const h1=location.hash,y1=m.scrollTop,fw1=document.querySelector('.pxbkb.fwd')?.disabled;
-        document.querySelector('.pxbkb.back')?.click();await W(3500);const y2=m.scrollTop,fw2=document.querySelector('.pxbkb.fwd')?.disabled;
-        fu7fBadge(y0===1800&&y2===1800&&h1.startsWith('#px/item/')&&y1===0&&fw1===true&&fw2===false,'scrolled '+y0+'px → opened '+h1+' at '+y1+'px (Forward disabled='+fw1+')\nBack → '+location.hash+' scrollTop '+y2+'px (Forward disabled='+fw2+')')},4500);
-      // fu7h MUST-1b scene: scroll to 1800, check the top-bar Back is on screen and hit-testable, open a title,
-      // scroll it, then wait for a REAL (isTrusted) OS click on Back from xdotool (rendercheck-click.sh). Badge: restored scroll.
+        const c=document.querySelector('#pxView .pxcard:not(.pxph) a, #pxView a.pxcard, #pxView .pxcard');c&&c.click();await W(3000);const h1=location.hash,y1=m.scrollTop;
+        history.back();await W(3500);const y2=m.scrollTop,h2=location.hash;
+        fu7fBadge(y0===1800&&y2===1800&&h1.startsWith('#px/item/')&&y1===0&&!h2.startsWith('#px/item/'),'scrolled '+y0+'px → opened '+h1+' at '+y1+'px\nBack → '+h2+' scrollTop '+y2+'px')},4500);
+      // fu7h scene: scroll to 1800, open a title, scroll it, then history.back() (Alt+Left / mouse 4). Badge: restored scroll.
       if(scene==='fu7hclick')setTimeout(async()=>{const W=ms=>new Promise(r=>setTimeout(r,ms));const m=document.getElementById('main');if(!m)return fu7fBadge(false,'no main');
-        const downs=[];addEventListener('pointerdown',e=>downs.push((e.isTrusted?'T':'s')+e.clientX+','+e.clientY+':'+(e.target&&e.target.tagName)),true);
         for(let i=0;i<20&&m.scrollTop<1800;i++){m.scrollTop=1800;await W(400)}const y0=m.scrollTop;await W(800);
-        const vis=()=>{const b=document.querySelector('.pxbkb.back');if(!b)return{ok:false,t:'no button'};const r=b.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,hit=document.elementFromPoint(cx,cy);
-          return{ok:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth&&!!hit&&b.contains(hit),t:'rect '+[r.left,r.top,r.right,r.bottom].map(v=>v.toFixed(0)).join(',')+' hit='+(hit&&hit.className&&String(hit.className.baseVal??hit.className)),cx,cy}};
-        const v0=vis();
         const c=document.querySelector('#pxView .pxcard:not(.pxph) a, #pxView a.pxcard, #pxView .pxcard');c&&c.click();await W(3000);const h1=location.hash;
-        for(let i=0;i<10&&m.scrollTop<300;i++){m.scrollTop=300;m.dispatchEvent(new Event('scroll'));await W(200)}const y1=m.scrollTop;await W(600);const v1=vis();
-        let ev=null;const bb=document.querySelector('.pxbkb.back');const rec=e=>{if(!ev)ev={t:e.isTrusted,x:e.clientX,y:e.clientY}};bb&&bb.addEventListener('click',rec,true);
-        fu7fBadge(true,'(interim) waiting for a real click on Back at '+(v1.cx|0)+','+(v1.cy|0)+' ('+v1.t+')');
-        for(let i=0;i<300&&!ev;i++)await W(200);document.querySelectorAll('.pxshoterr').forEach(x=>x.remove());await W(3500);const y2=m.scrollTop;
-        fu7fBadge(y0===1800&&v0.ok&&v1.ok&&h1.startsWith('#px/item/')&&y1>0&&!!ev&&ev.t===true&&!location.hash.startsWith('#px/item/')&&y2===1800,
-          'library scrolled '+y0+'px · Back on screen at 1800: '+v0.ok+' ('+v0.t+')\nopened '+h1+', scrolled to '+y1+'px · Back on screen: '+v1.ok+'\nOS click on Back: '+(ev?('isTrusted='+ev.t+' at '+ev.x+','+ev.y):'NONE')+'\n→ '+location.hash+' scrollTop '+y2+'px\nviewport '+innerWidth+'x'+innerHeight+' dpr '+devicePixelRatio+' pointerdowns '+downs.join(' '))},4500);
+        for(let i=0;i<10&&m.scrollTop<300;i++){m.scrollTop=300;m.dispatchEvent(new Event('scroll'));await W(200)}const y1=m.scrollTop;await W(600);
+        history.back();await W(3500);const y2=m.scrollTop;
+        fu7fBadge(y0===1800&&h1.startsWith('#px/item/')&&y1>0&&!location.hash.startsWith('#px/item/')&&y2===1800,
+          'library scrolled '+y0+'px\nopened '+h1+', scrolled to '+y1+'px\nhistory.back → '+location.hash+' scrollTop '+y2+'px')},4500);
       if(scene==='fu7eperson')setTimeout(()=>{const a=document.querySelector('a.pxcred');a&&a.click()},4500);
       if(scene==='fu7escroll')setTimeout(async()=>{const m=document.getElementById('main');if(!m)return;const first=document.querySelector('.pxvgrid .pxcard:not(.pxph)');for(let i=0;i<14;i++){m.scrollTop+=420;await new Promise(r=>setTimeout(r,120))}
         setTimeout(()=>{const o=el('pre','pxshoterr');const n=document.querySelectorAll('.pxvgrid>.pxcard').length,ph=document.querySelectorAll('.pxvgrid>.pxph').length;o.style.cssText='position:fixed;right:24px;bottom:20px;z-index:9999;padding:10px;border-radius:8px;font:12px monospace;color:#fff;background:'+(first&&first.isConnected?'#1d6b34':'#8b1d1d');o.textContent=(first&&first.isConnected?'PASS':'FAIL')+' first tile still mounted · '+n+' slots · '+ph+' placeholders';document.body.appendChild(o)},900)},4500);

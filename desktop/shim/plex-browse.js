@@ -24,6 +24,18 @@ export function cwMeter(it) {
   return { off, dur, width: (off > 0 ? Math.max(pct, 2) : 0).toFixed(1) + '%', left: dur ? mins(Math.max(0, dur - off)) + ' left' : '' };
 }
 
+// Portrait hub cards of an episode use the series cover (`poster` = grandparentThumb).
+// Continue Watching and Next Up pass still=true so the episode screenshot stays.
+// A wide season row keeps the still. The home hero does not use this helper.
+export function cardArt(it, wide, still) {
+  if (!it) return null;
+  if (it.kind === 'episode') {
+    if (still || wide) return it.thumb || it.art || it.poster || null;
+    return it.poster || it.thumb || null;
+  }
+  return (wide ? (it.art || it.poster || it.thumb) : (it.poster || it.thumb)) || null;
+}
+
 // da Vinci S1: when the library list itself failed to load, say so with the failure
 // category's fixed text; "isn't on this server" only when the list loaded without it.
 export function missingLibraryText(loadErr, why) {
@@ -185,11 +197,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   const side = document.getElementById('nav'); if (side) side.before(nav);
   let on = false, sections = [], gen = 0, server = '', onScroll = null, srcGen = 0;
   const sm = scrollMemory({ scroller: main, hist: history }), swap = pageSwap({ doc: document, scroller: main, view, host: main });
-  // fu7f: Back/Forward in the top bar, mouse buttons 4/5 and Alt+Left/Right.
-  const bk = el('div', 'pxbk'); bk.hidden = true;
-  const mkb = (cls, lbl, d) => { const b = el('button', 'pxbkb ' + cls); b.type = 'button'; b.setAttribute('aria-label', lbl); b.title = lbl; b.appendChild(pxIcon('chev')); b.onclick = () => d === 'back' ? history.back() : history.forward(); bk.appendChild(b); return b; };
-  const bkb = mkb('back', 'Back (Alt+Left)', 'back'), fwb = mkb('fwd', 'Forward (Alt+Right)', 'fwd');
-  if (top) top.prepend(bk);
+  // History stays on Alt+Left/Right and mouse buttons 4/5. The top bar has no Back/Forward.
   const navGo = d => { if (!on || !location.hash.startsWith('#px/')) return false; if (d === 'back') { if (sm.index > 0) history.back(); } else if (sm.canForward) history.forward(); return true; };
   for (const t of ['mousedown', 'auxclick']) addEventListener(t, e => { if (on && navInput(e)) e.preventDefault(); }, true);
   addEventListener('mouseup', e => { const d = navInput(e); if (d && navGo(d)) e.preventDefault(); }, true);
@@ -206,11 +214,10 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   const dropMusic = list => (list || []).filter(it => it && !MUSIC_KINDS.has(it.kind));
   const dropMusicLibs = list => (list || []).filter(s => s && !MUSIC_KINDS.has(s.kind));
 
-  function poster(it, wide) {
+  function poster(it, wide, still) {
     const a = el('a', 'card pxcard' + (wide ? ' wide' : '')); a.href = '#px/item/' + it.id; a.dataset.kind = it.kind;
-    // FU7: episodes use their own still (thumb) first; music is square and never shows watched state.
     const music = it.kind === 'artist' || it.kind === 'album', sq = music ? 300 : 200;
-    const p = el('div', 'poster'); const src = img(wide ? (it.kind === 'episode' ? (it.thumb || it.art) : (it.art || it.thumb)) : it.thumb, wide ? 320 : sq, wide ? 180 : 300);
+    const p = el('div', 'poster'); const src = img(cardArt(it, wide, still), wide ? 320 : sq, wide ? 180 : 300);
     const ph = () => { if (!music) return; p.appendChild(el('span', 'pxph', ((it.title || '?').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase())); };
     if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.decoding = 'async'; i.className = 'pxfade'; i.onload = () => i.classList.add('in'); i.src = src; i.onerror = () => { i.remove(); ph(); }; p.appendChild(i); if (i.complete && i.naturalWidth) i.classList.add('in'); } else ph();
     if (it.viewOffsetMs && it.durationMs) { const b = el('div', 'pxprog'); const f = el('i'); f.style.width = Math.min(100, it.viewOffsetMs / it.durationMs * 100).toFixed(1) + '%'; b.appendChild(f); p.appendChild(b); }
@@ -226,9 +233,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     a.appendChild(m);
     return a;
   }
-  function row(title, list, wide) {
+  function row(title, list, wide, still) {
     if (!list || !list.length) return null;
-    return strip({ title, items: list, wide: !!wide, count: list.length, key: title });
+    return strip({ title, items: list, wide: !!wide, still: !!still, count: list.length, key: title });
   }
   const afterPaint = fn => requestAnimationFrame(() => requestAnimationFrame(fn));
   function toast(msg) {
@@ -304,6 +311,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   function strip(r) {
     const sec = el('section', 'pxstrip' + (r.wide ? ' pxwd' : ''));
     if (r.key) sec.dataset.row = String(r.key).slice(0, 80);
+    if (/continue/i.test((r.title || '') + ' ' + (r.key || ''))) sec.classList.add('pxcw');
     if (r.title) {
       const h = el('h2', 'pxsth');
       h.appendChild(el('span', 'pxstt', r.title));
@@ -315,7 +323,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const sc = el('div', 'row pxrow pxsts' + (r.wide ? ' pxwd' : ''));
     const ranked = /top\s*10/i.test((r.title || '') + ' ' + (r.key || ''));
     r.items.forEach((it, i) => {
-      const c = poster(it, !!r.wide);
+      const c = poster(it, !!r.wide, !!r.still);
       if (ranked) { c.classList.add('pxranked'); const pp = c.querySelector('.poster'); if (pp) pp.appendChild(el('span', 'pxrank', String(i + 1))); }
       sc.appendChild(c);
     });
@@ -375,8 +383,10 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     // srcGen: a reply from the previous server (or from before the pick) must never
     // overwrite the new server's library list; that left category links pointing at stale ids.
     const sg = srcGen; navState = 'loading'; renderNav();
-    invoke('browse_home').then(v => { if (sg !== srcGen) return; sections = dropMusicLibs(v.sections); navState = 'ok'; renderNav(); }).catch(() => { if (sg !== srcGen) return; navState = 'fail'; renderNav(); });
+    invoke('browse_home').then(v => { if (sg !== srcGen) return; sections = dropMusicLibs(v.sections); navState = 'ok'; renderNav(); warmLibs(); }).catch(() => { if (sg !== srcGen) return; navState = 'fail'; renderNav(); });
   }
+  // Movies/TV hubs share Home's cache. Warm them when the library list arrives so a click is not a cold wait.
+  function warmLibs() { sections.forEach(s => { if (s.kind === 'movie' || s.kind === 'show') invoke('browse_section_hubs', { id: String(s.id) }).catch(() => {}); }); }
   function renderNav() {
     nav.textContent = '';
     // fu6: the name lives only on the bottom profile card; switching lives in Profile → Switch server.
@@ -456,7 +466,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if ((v.servers || 0) > 1) view.appendChild(el('p', 'muted small pxmsrv', 'Browsing ' + (v.answered || v.servers) + ' of ' + v.servers + ' servers'));
     // FU7: the promoted hubs can repeat Continue Watching / On Deck; show each once.
     const dup = h => /continue|ondeck|on deck|next up/i.test((h.ident || '') + ' ' + (h.title || ''));
-    [row('Continue Watching', cwAll.filter(notHi)), row('Next Up', odAll.filter(notHi)), ...v.hubs.filter(h => !dup(h)).map(h => row(h.title, dropMusic(h.items)))].forEach(x => x && view.appendChild(x));
+    warmLibs();
+    [row('Continue Watching', cwAll.filter(notHi), false, true), row('Next Up', odAll.filter(notHi), false, true), ...v.hubs.filter(h => !dup(h)).map(h => row(h.title, dropMusic(h.items)))].forEach(x => x && view.appendChild(x));
     if (!view.querySelector('.pxrow')) view.appendChild(el('p', 'muted', 'Nothing here yet.'));
     afterPaint(() => { if (g === gen) { view.querySelectorAll('.pxstrip').forEach(syncArrows); if (hi) bindHomeHero(g); } });
   }
@@ -479,7 +490,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     TABS.filter(t => !(s && s.kind === 'artist' && (t[0] === 'collections' || t[0] === 'studios'))).forEach(([k, n]) => { const a = el('a', 'pxtab' + (k === tab ? ' on' : ''), n); a.href = `#px/sec/${id}/${k}`; a.setAttribute('role', 'tab'); a.setAttribute('aria-selected', String(k === tab)); tabs.appendChild(a); });
     view.appendChild(tabs);
     const landing = (s.kind === 'movie' || s.kind === 'show') && tab === 'all' && !fk;
-    if (landing) { const box = await sectionLanding(id, g); if (g !== gen) return; if (box) view.appendChild(box); }
+    const sk = landing ? loading() : null;
+    if (landing) { const box = await sectionLanding(id, g); if (sk) sk.remove(); if (g !== gen) return; if (box) view.appendChild(box); }
     if (tab === 'collections') {
       const w = loading(); const cs = await invoke('browse_collections', { id }); if (g !== gen) return; w.remove();
       const gr = el('div', 'grid pxgrid'); cs.forEach(c => gr.appendChild(poster(c))); view.appendChild(cs.length ? gr : el('p', 'muted', 'No collections.')); count.textContent = `${cs.length} collections`; return;
@@ -572,7 +584,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       const items = h === heroHub ? h.items.filter(it => !heroIt || it.id !== heroIt.id) : h.items;
       if (!items.length) return;
       const see = /genre/i.test(h.ident) ? `#px/sec/${id}/all/genre/${encodeURIComponent(h.title)}` : '';
-      box.appendChild(strip({ title: h.title, ident: h.ident, items, see, count: h.items.length, key: h.ident || h.title, wide: false }));
+      const still = /continue|next up|on deck|ondeck/i.test((h.ident || '') + ' ' + (h.title || ''));
+      box.appendChild(strip({ title: h.title, ident: h.ident, items, see, count: h.items.length, key: h.ident || h.title, wide: false, still }));
     });
     afterPaint(() => { if (g === gen) box.querySelectorAll('.pxstrip').forEach(syncArrows); });
     return box;
@@ -703,7 +716,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       b.onclick = () => { fm.querySelectorAll('[data-cc]').forEach(x => x.classList.remove('on')); b.classList.add('on'); save({ audio: avMemory(it.id).audio, sub: i }); shut(); };
       fm.appendChild(b);
     });
-    fb.onclick = e => { e.stopPropagation(); const open = fm.hidden; fm.hidden = !open; fb.setAttribute('aria-expanded', String(open)); };
+    fb.onclick = e => { e.stopPropagation(); const open = fm.hidden; fm.hidden = !open; fb.setAttribute('aria-expanded', String(open)); if (open) placeMenu(fb, fm); };
     document.addEventListener('click', e => { if (!feat.contains(e.target)) shut(); });
     feat.appendChild(fb); feat.appendChild(fm); return feat;
   }
@@ -730,7 +743,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
         b.onclick = e => { e.stopPropagation(); menu.hidden = true; invoke('version_pick', { id: v.id }).catch(() => {}); it.playVersion = v.id; startTitlePlay(it, false); };
         menu.appendChild(b);
       });
-      pb.onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+      pb.onclick = e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; if (open) placeMenu(pb, menu); };
       document.addEventListener('click', e => { if (!slot.contains(e.target)) menu.hidden = true; });
       slot.appendChild(pb); slot.appendChild(menu); ra.appendChild(slot);
     } else rb('play', 'Play', () => startTitlePlay(it, false));
@@ -748,6 +761,14 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     ra.appendChild(moreMenu(it));
     return ra;
   }
+  // Open downward so the first row (Watch together) is not covered by the window chrome.
+  // Flip upward only when the viewport has more room above the button.
+  function placeMenu(anchor, menu) {
+    menu.classList.remove('up');
+    const r = anchor.getBoundingClientRect();
+    const below = (window.innerHeight || 0) - r.bottom;
+    if (below < 240 && r.top > below) menu.classList.add('up');
+  }
   async function item(id, g) {
     if (!ID.test(id)) return status('Not found');
     view.textContent = ''; loading();
@@ -762,7 +783,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const d = el('div', 'pxdet');
     const bd = backdrop(it); if (bd) view.appendChild(bd);
     const body = el('div', 'pxdbody'); d.appendChild(body);
-    const ps = img(it.thumb, 260, 390); if (ps) { const p = el('img', 'pxposter'); p.alt = ''; p.src = ps; p.onerror = () => p.remove(); body.appendChild(p); }
+    const ps = img(it.poster || it.thumb || it.art, 260, 390); if (ps) { const p = el('img', 'pxposter'); p.alt = ''; p.src = ps; p.onerror = () => p.remove(); body.appendChild(p); }
     const tx = el('div', 'pxdtext'); body.appendChild(tx);
     if (it.kind === 'episode' || it.kind === 'season') { const ctx = el('div', 'pxctx'); const sh = el('a', 'pxup', it.kind === 'episode' ? it.grandparentTitle : it.parentTitle); sh.href = '#px/item/' + (it.kind === 'episode' ? it.grandparentId : it.parentId); ctx.appendChild(sh);
       if (it.kind === 'episode') { ctx.appendChild(el('span', 'muted', ' › ')); const se = el('a', 'pxup', 'Season ' + (it.parentIndex ?? '?')); se.href = '#px/item/' + it.parentId; ctx.appendChild(se); ctx.appendChild(el('span', 'muted', ' · Episode ' + (it.index ?? '?'))); }
@@ -775,9 +796,6 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if (it.tagline) tx.appendChild(el('p', 'pxtag', it.tagline));
     if (it.genres.length) { const gl = el('div', 'pxgenres'); it.genres.forEach(x => gl.appendChild(el('span', 'pxgenre', x))); tx.appendChild(gl); }
     if (it.summary) tx.appendChild(el('p', 'pxsum', it.summary));
-    // Action row sits above credits so Play stays on screen (not under the photo row).
-    if (it.kind === 'movie' || it.kind === 'episode') tx.appendChild(playRow(it));
-    else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn()); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
     const srvNames = [...new Set((it.versions || []).map(v => v.server).filter(s => typeof s === 'string' && s))];
     if (srvNames.length > 1) {
       const avl = el('p', 'muted small pxavail'); avl.appendChild(document.createTextNode('Available on '));
@@ -792,7 +810,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     }
     const ready = readyLine(it); if (ready) tx.appendChild(ready);
     const fln = fileLine(it); if (fln) tx.appendChild(fln);
-    // Key credits under the actions; "Full cast" scrolls to the photo row below.
+    // Key credits; "Full cast" scrolls to the photo row below.
     const cr = el('dl', 'pxcredits'); const crow = (k, v, more) => { if (!v) return; cr.appendChild(el('dt', 'muted', k)); const dd = el('dd', null, v); if (more) { const a = el('button', 'pxlink', more); a.type = 'button'; a.onclick = () => { const h = d.querySelector('.pxheads'); if (h) h.scrollIntoView({ block: 'start', behavior: 'smooth' }); }; dd.appendChild(document.createTextNode(' ')); dd.appendChild(a); } cr.appendChild(dd); };
     const mainCast = it.cast.filter(c => !/^guest/i.test(c.role)), guests = it.cast.filter(c => /^guest/i.test(c.role));
     crow('Starring', mainCast.slice(0, 4).map(c => c.name).join(', '), it.cast.length ? 'Full cast' : '');
@@ -800,6 +818,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     crow(it.directors.length > 1 ? 'Directors' : 'Director', it.directors.join(', ')); crow(it.writers.length > 1 ? 'Writers' : 'Writer', it.writers.join(', '));
     if (cr.childNodes.length) tx.appendChild(cr);
     const acts = el('div', 'pxacts'); acts.appendChild(panelBtn('Chapters & Up Next', 'list', shell)); tx.appendChild(acts);
+    if (it.kind === 'movie' || it.kind === 'episode') tx.appendChild(playRow(it));
+    else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn()); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
     if (it.cast.length) { const cs = el('section', 'pxheads'); cs.appendChild(el('h2', 'pxrowh', it.kind === 'episode' ? 'Cast & guest stars' : 'Credits')); const r = el('div', 'pxheadrow');
       it.cast.slice(0, 20).forEach(x => { const p = el(ID.test(x.id || '') ? 'a' : 'button', 'pxcred'); p.title = x.name; if (p.tagName === 'A') { p.href = '#px/person/' + x.id; p.onclick = e => { e.preventDefault(); openPerson(p, x.id, it); }; } else { p.type = 'button'; p.onclick = () => openPersonLocal(p, x, it); } const av = el('i', null, x.name.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2)); const ps = img(x.thumb, 240, 240); if (ps) { const pi = el('img'); pi.alt = ''; pi.loading = 'lazy'; pi.src = ps; pi.onerror = () => pi.remove(); av.appendChild(pi); } p.appendChild(av); p.appendChild(el('b', null, x.name)); p.appendChild(el('span', 'muted small', x.role)); r.appendChild(p); });
       cs.appendChild(r); d.appendChild(cs); }
@@ -839,12 +859,15 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   }
   function personInto(view, pv) {
     const hd = el('div', 'pxperson');
+    const face = el('div', 'pxpface');
     const av = el('i', 'pxpav', (pv.name || '?').split(/\s+/).map(w => w[0] || '').join('').slice(0, 2));
     const u = img(pv.thumb, 220, 220); if (u) { const pi = el('img'); pi.alt = ''; pi.src = u; pi.onerror = () => pi.remove(); av.appendChild(pi); }
-    hd.appendChild(av);
-    const tx = el('div', 'pxptext'); const h1 = el('h1', 'pxh', pv.name || 'Unknown'); if (view === pmb) h1.id = 'pxpmTitle'; tx.appendChild(h1);
+    face.appendChild(av);
+    const h1 = el('h1', 'pxh pxpname', pv.name || 'Unknown'); if (view === pmb) h1.id = 'pxpmTitle'; face.appendChild(h1);
     const born = pv.born ? new Date(pv.born + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '';
-    const facts = [born ? 'Born ' + born : '', pv.birthplace].filter(Boolean).join(' · '); if (facts) tx.appendChild(el('div', 'muted pxfacts', facts));
+    const facts = [born ? 'Born ' + born : '', pv.birthplace].filter(Boolean).join(' · '); if (facts) face.appendChild(el('div', 'muted pxfacts', facts));
+    hd.appendChild(face);
+    const tx = el('div', 'pxptext');
     if (pv.bio) { const b = el('p', 'pxsum pxbio', pv.bio); tx.appendChild(b); if (pv.bio.length > 420) { b.classList.add('clamp'); const m = el('button', 'pxlink', 'More'); m.type = 'button'; m.onclick = () => { const c = b.classList.toggle('clamp'); m.textContent = c ? 'More' : 'Less'; }; tx.appendChild(m); } }
     const srcs = (pv.sources || []).filter(x => typeof x === 'string').slice(0, 6); if (srcs.length > 1) tx.appendChild(el('div', 'pxsrc small', 'On ' + srcs.join(' · ')));
     hd.appendChild(tx); view.appendChild(hd);
@@ -928,8 +951,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if (h === '#home' || h === '#') { go('#px/home'); return; }
     const isPx = h.startsWith('#px/');
     document.body.classList.toggle('pxroute', isPx); view.hidden = !isPx; clearCollage();
-    if (!isPx) { bk.hidden = true; swap.end(); mark(h === '#settings' ? 'settings' : ''); return; }
-    pm.close(false); sm.save(); const back = sm.enter(); bk.hidden = false; bkb.disabled = sm.index <= 0; fwb.disabled = !sm.canForward; swap.begin(); const g = ++gen; onScroll = null; const [, kind, ...rest] = h.split('/'); const part = rest.map(x => { try { return decodeURIComponent(x); } catch { return ''; } });
+    if (!isPx) { swap.end(); mark(h === '#settings' ? 'settings' : ''); return; }
+    pm.close(false); sm.save(); const back = sm.enter(); swap.begin(); const g = ++gen; onScroll = null; const [, kind, ...rest] = h.split('/'); const part = rest.map(x => { try { return decodeURIComponent(x); } catch { return ''; } });
     main.scrollTop = 0;
     if (hooks.navDelay) { const d = hooks.navDelay(); if (d) await new Promise(r => setTimeout(r, d)); if (g !== gen) return; } // mock builds only
     try {
