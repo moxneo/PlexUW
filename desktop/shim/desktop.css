@@ -152,7 +152,6 @@ body.navc #pxNav{align-items:center}body.navc #pxNav a{width:3rem;height:2.75rem
 .person i{position:relative;overflow:hidden}.person i img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .pxepnav{margin-top:16px}.pxepnav .off{opacity:.4;pointer-events:none}
 .pxnavmsg{display:block;padding:8px 10px;font-size:12px}
-.profile[role=button]:hover{background:rgba(255,255,255,.06);border-radius:10px}
 /* Fluid layout down to ~1000px: content and grid use the full width; the A-Z rail stays
    visible; detail panels overlay the page instead of squeezing it below 1200px. */
 #pxView{width:auto;max-width:none;box-sizing:border-box}
@@ -216,7 +215,8 @@ body.plexmode #nav,body.plexmode .side-foot,.pxprof{display:none!important}
 #pxNav a:focus-visible{outline:2px solid #FF7A1A;outline-offset:1px}
 #pxNav .navh{padding:14px 12px 4px}
 #pxNav .pxnavset{margin-top:12px;position:relative}#pxNav .pxnavset::before{content:"";position:absolute;left:12px;right:12px;top:-8px;height:1px;background:rgba(255,255,255,.08)}
-.profile{min-height:52px;box-sizing:border-box;border-radius:10px}
+.profile{position:relative;width:100%;min-height:52px;box-sizing:border-box;border-radius:10px;text-align:left;cursor:pointer}
+.profile:hover{background:rgba(255,255,255,.06)}
 .profile:focus-visible,.profile.pxfocus{outline:2px solid #FF7A1A;outline-offset:2px}
 /* Collapsed rail (body.navc, and automatically below 1600px): one 44px column, even rhythm */
 @media (max-width:1599px){
@@ -391,8 +391,8 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 .pxround .pxrb.lab .pxrbl{font-size:14px;font-weight:600;white-space:nowrap}
 .pxround .pxrb.lab .ic,.pxround .pxrb.lab .pxi{width:18px;height:18px}
 .pxfeat{position:relative;display:inline-flex}
-.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:var(--chrome-bg);backdrop-filter:var(--chrome-blur);-webkit-backdrop-filter:var(--chrome-blur);border:var(--hairline);box-shadow:0 16px 40px rgba(0,0,0,.55)}
-.pxfeatmenu.up{top:auto;bottom:calc(100% + 8px)}
+.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);display:block;min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.07) 38%,rgba(255,255,255,.04)),rgba(92,92,98,.46);backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);border:1px solid rgba(255,255,255,.2);box-shadow:0 16px 40px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.32)}
+.pxfeatmenu.pxup{top:auto;bottom:calc(100% + 8px)}
 .pxfeatmenu[hidden]{display:none!important}
 .pxfeatmenu .mh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8d96a8;padding:4px 8px 6px}
 .pxfeatmenu button{display:block;width:100%;text-align:left;padding:8px 10px;border:0;border-radius:8px;background:none;color:#F2F2F2;font:500 13px system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
@@ -478,20 +478,14 @@ body.navc .profile .pxrailav:not([hidden]){display:grid}
 @media (max-width:1599px){body:not(.navo) .profile .pxrailav:not([hidden]){display:grid}}
 body.navo .profile .pxrailav{display:none!important}
 .profile .pxname{font-weight:650}
-.profile .pn a{color:#c9cfdb;text-decoration:none;font-size:12px;line-height:1.35}
-.profile .pn a:hover{color:#fff}
 @media (max-width:1599px){
  body:not(.navo) .profile{position:relative;overflow:visible}
  body:not(.navo) .profile .pn{display:none}
- body:not(.navo) .profile:hover .pn,body:not(.navo) .profile:focus-within .pn{display:flex;position:absolute;left:calc(100% + 8px);bottom:0;z-index:40;min-width:180px;padding:10px 12px;border-radius:12px;background:#1B1D23;border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 32px rgba(0,0,0,.45)}
 }
 @media (min-width:1600px){
  body.navc .profile{position:relative;overflow:visible}
- body.navc .profile:hover .pn,body.navc .profile:focus-within .pn{display:flex!important;position:absolute;left:calc(100% + 8px);bottom:0;z-index:40;min-width:180px;padding:10px 12px;border-radius:12px;background:#1B1D23;border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 32px rgba(0,0,0,.45)}
 }
 body.navo .profile .pn,body.navo .profile:hover .pn,body.navo .profile:focus-within .pn{display:flex!important;position:static!important;left:auto;min-width:0;padding:0;background:none;border:0;box-shadow:none}
-.profile .pxset{display:inline-flex;align-items:center;gap:6px;color:#c9cfdb;text-decoration:none}
-.profile .pxset .pxi{width:14px;height:14px;flex:none}
 body.desktop.plexmode .sidebar{overflow:visible;z-index:40;background:var(--chrome-bg);backdrop-filter:var(--chrome-blur);-webkit-backdrop-filter:var(--chrome-blur);border-right:var(--hairline)}
-body.desktop:not(.navo) nav a::after,body.desktop.navc:not(.navo) nav a::after,body.desktop:not(.navo) button.logo[data-label]::after,body.desktop.navc:not(.navo) button.logo[data-label]::after{top:0;transform:none;z-index:1200;white-space:nowrap}
+body.desktop:not(.navo) nav a::after,body.desktop.navc:not(.navo) nav a::after,body.desktop:not(.navo) button.logo[data-label]::after,body.desktop.navc:not(.navo) button.logo[data-label]::after,body.desktop:not(.navo) .profile[data-label]::after,body.desktop.navc:not(.navo) .profile[data-label]::after{top:0;transform:none;z-index:1200;white-space:nowrap}
 body.desktop.fs .pxclock{top:14px}

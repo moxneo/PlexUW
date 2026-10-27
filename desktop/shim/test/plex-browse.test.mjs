@@ -12,7 +12,7 @@ globalThis.navigator ??= { userAgent: 'node' };
 const tmp = join(mkdtempSync(join(tmpdir(), 'pxb-')), 'plex-browse.mjs');
 writeFileSync(tmp, src);
 writeFileSync(join(dirname(tmp), 'px-icons.js'), readFileSync(join(here, '..', 'px-icons.js'), 'utf8'));
-const { missingLibraryText, cwMeter, cardArt } = await import(tmp);
+const { missingLibraryText, cwMeter, cardArt, menuOpensUp } = await import(tmp);
 const WHY = { unreachable: 'None of this server’s addresses answered.', timeout: 'The server took too long to answer.' };
 const why = e => WHY[String(e)] || 'Something went wrong. Try again.';
 
@@ -183,7 +183,8 @@ test('strip chevrons: both ends mid-scroll, left hidden on the first tile', asyn
   assert.match(css, /\.pxstrip\.pxcw \.pxsts\{padding-left:0;padding-right:0/);
   assert.match(css, /\.pxbackdrop\{transition:opacity 1100ms ease-in-out\}/);
   assert.match(css, /transition:opacity 1400ms ease-in-out/);
-  assert.match(css, /\.pxfeatmenu\{[^}]*var\(--chrome-bg\)/);
+  assert.match(css, /\.pxfeatmenu\{[^}]*rgba\(92,92,98,\.46\)/);
+  assert.match(css, /\.pxfeatmenu\{[^}]*backdrop-filter:blur\(40px\) saturate\(180%\)/);
   assert.match(css, /backdrop-filter:var\(--chrome-blur\)/);
   assert.match(css, /body\.desktop\.plexmode \.sidebar\{[^}]*var\(--chrome-bg\)/);
 });
@@ -204,8 +205,8 @@ test('expanded rail has no stuck native tooltip', () => {
   assert.doesNotMatch(desk, /navx/);
   assert.match(html, /class="av pxrailav"/);
   assert.match(html, /class="pxwho"/);
-  assert.match(html, /class="pxset" href="#settings">Settings/);
-  assert.doesNotMatch(html, /class="pxset" href="#settings" aria-label="Settings"><\/a><span class="pn">/);
+  assert.match(html, /<a class="profile" href="#settings">/);
+  assert.doesNotMatch(html, /class="pxset"/);
   assert.match(desk, /plexOrigin\(\)\+'\/img\/'\+id\+'\/80x80'/);
   assert.match(desk, /fill\(rail,id,true\)/);
   const land = src.slice(src.indexOf('async function sectionLanding'), src.indexOf('function fileLine'));
@@ -213,9 +214,18 @@ test('expanded rail has no stuck native tooltip', () => {
   assert.match(land, /pxcase/);
   const home = src.slice(src.indexOf('async function home('), src.indexOf('async function section('));
   assert.doesNotMatch(home, /hi\.thumb \|\| hi\.art/);
-  assert.match(src, /Math\.max\(240, menu\.offsetHeight \|\| 0\)/);
+  assert.equal(menuOpensUp(700, 140, 420), false);
+  assert.equal(menuOpensUp(360, 520, 480), false);
+  assert.equal(menuOpensUp(200, 640, 180), false);
+  assert.equal(menuOpensUp(90, 700, 420), true);
+  assert.equal(menuOpensUp(80, 40, 420), false);
+  assert.match(src, /menuOpensUp\(below, above, need\)\) menu\.classList\.add\('pxup'\)/);
+  assert.match(css, /\.pxfeatmenu\.pxup\{top:auto;bottom:calc\(100% \+ 8px\)\}/);
+  assert.doesNotMatch(src, /classList\.add\('up'\)/);
   assert.match(src, /menu\.style\.left = '0px'/);
   assert.match(src, /box\.right > right/);
+  assert.match(desk, /dataset\.label='Settings'/);
+  assert.match(desk, /prof\.addEventListener\('click',e=>\{e\.preventDefault\(\);openAccount\(\)\}\)/);
 });
 test('parity tip: section hubs, play row, watch-together stub, no stream URI', () => {
   assert.match(src, /invoke\('browse_section_hubs'/);

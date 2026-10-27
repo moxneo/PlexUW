@@ -129,7 +129,12 @@ export function scrollMemory({ scroller, hist, max = 60 }) {
     },
   };
 }
-// Mouse button 4/5 (DOM buttons 3/4) and Alt+Left/Right → 'back' | 'fwd' | null.
+// Down when the visible scrollport has room under the trigger.
+// Up only on the bottom edge: the menu would clip, under 240px remains, and more fits above.
+// A tall menu (audio + subtitles) must not flip just because the trigger is below the midline.
+export function menuOpensUp(below, above, need) {
+  return below < need && below < 240 && above > below;
+}
 // Strip chevrons: both ends while the row is mid-scroll; the left one hides only at the start
 // so it never sits on the first tile (the button lives in the gutter, not over the poster).
 export function arrowFlags(scrollLeft, clientWidth, scrollWidth) {
@@ -140,6 +145,7 @@ export function arrowFlags(scrollLeft, clientWidth, scrollWidth) {
     atr: scrollLeft + clientWidth >= scrollWidth - 2,
   };
 }
+// Mouse button 4/5 (DOM buttons 3/4) and Alt+Left/Right → 'back' | 'fwd' | null.
 export function navInput(e) {
   if (!e) return null;
   if (e.type === 'keydown') { if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null; return e.key === 'ArrowLeft' ? 'back' : e.key === 'ArrowRight' ? 'fwd' : null; }
@@ -768,18 +774,26 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     ra.appendChild(moreMenu(it));
     return ra;
   }
-  // Open downward so the first row (Watch together) is not covered by the window chrome.
-  // Flip upward only when the viewport has more room above the button.
+  // Measure against #main's visible box (the page scroller), not the document.
+  // Open down while that box has room below. Flip up only on the bottom edge.
   function placeMenu(anchor, menu) {
-    menu.classList.remove('up');
+    menu.classList.remove('pxup');
     menu.style.left = '0px';
+    menu.style.maxHeight = '';
+    menu.style.overflowY = '';
     const r = anchor.getBoundingClientRect();
-    const below = (window.innerHeight || 0) - r.bottom;
-    const need = Math.max(240, menu.offsetHeight || 0);
-    if (below < need && r.top > below) menu.classList.add('up');
-    const box = menu.getBoundingClientRect();
     const main = document.getElementById('main');
-    const right = Math.min(window.innerWidth || 0, main ? main.getBoundingClientRect().right : (window.innerWidth || 0)) - 8;
+    const mr = main && main.getBoundingClientRect();
+    const viewTop = mr ? Math.max(0, mr.top) : 0;
+    const viewBottom = Math.min(window.innerHeight || 0, mr ? mr.bottom : (window.innerHeight || 0));
+    const below = viewBottom - r.bottom;
+    const above = r.top - viewTop;
+    const need = menu.offsetHeight || 0;
+    if (menuOpensUp(below, above, need)) menu.classList.add('pxup');
+    const room = (menu.classList.contains('pxup') ? above : below) - 8;
+    if (need > room && room > 48) { menu.style.maxHeight = Math.floor(room) + 'px'; menu.style.overflowY = 'auto'; }
+    const box = menu.getBoundingClientRect();
+    const right = Math.min(window.innerWidth || 0, mr ? mr.right : (window.innerWidth || 0)) - 8;
     let dx = 0;
     if (box.right > right) dx -= box.right - right;
     if (box.left + dx < 8) dx += 8 - (box.left + dx);
