@@ -489,3 +489,39 @@ body.navo .profile .pn,body.navo .profile:hover .pn,body.navo .profile:focus-wit
 body.desktop.plexmode .sidebar{overflow:visible;z-index:40;background:var(--chrome-bg);backdrop-filter:var(--chrome-blur);-webkit-backdrop-filter:var(--chrome-blur);border-right:var(--hairline)}
 body.desktop:not(.navo) nav a::after,body.desktop.navc:not(.navo) nav a::after,body.desktop:not(.navo) button.logo[data-label]::after,body.desktop.navc:not(.navo) button.logo[data-label]::after,body.desktop:not(.navo) .profile[data-label]::after,body.desktop.navc:not(.navo) .profile[data-label]::after{top:0;transform:none;z-index:1200;white-space:nowrap}
 body.desktop.fs .pxclock{top:14px}
+/* Settings column only. Home fanart (.pxbackdrop / .pxcollage) stays outside this panel.
+   z-index sits above the wash (z-index 0) and under the rail. Opaque fill, not a
+   translucent tint, so labels do not pick up the art. Padding keeps the title's
+   em box inside the panel instead of on the scrollport's clip edge. */
+body.plexmode #setView{
+  position:relative;
+  z-index:2;
+  isolation:isolate;
+  box-sizing:border-box;
+  max-width:min(52rem,100%);
+  margin:0;
+  padding:1.35rem 1.4rem 1.6rem;
+  border-radius:16px;
+  background:rgba(16,17,20,.97);
+  -webkit-backdrop-filter:blur(18px) saturate(140%);
+  backdrop-filter:blur(18px) saturate(140%);
+  border:1px solid rgba(255,255,255,.12);
+  color:#f4f6f8;
+  box-shadow:0 18px 48px rgba(0,0,0,.38);
+}
+body.plexmode #setView > .row-title{
+  margin:0 0 .9rem;
+  padding:0;
+  line-height:1.3;
+  color:#fff;
+  overflow:visible;
+}
+body.plexmode #setView .setcard{
+  background:#23262e;
+  border-color:rgba(255,255,255,.14);
+  color:#f4f6f8;
+}
+body.plexmode #setView .setcard h3{color:#fff}
+body.plexmode #setView .muted,
+body.plexmode #setView .note,
+body.plexmode #setView .frow label{color:#d5dae3}

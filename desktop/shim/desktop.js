@@ -249,8 +249,20 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     const note=document.querySelector('#aiProvider .note');if(note)note.textContent='Mock: the key is kept in the OS keychain (Credential Manager / Keychain / Secret Service), never in localStorage, never logged, put in a URL or sent anywhere. Test connection returns a mock result without any network request.';})();
   // Scrollbars fade in while a container scrolls (CSS shows them on hover too).
   {const tm=new WeakMap();document.addEventListener('scroll',e=>{const t=e.target===document?document.documentElement:e.target;if(!(t instanceof Element))return;t.classList.add('px-scrolling');clearTimeout(tm.get(t));tm.set(t,setTimeout(()=>t.classList.remove('px-scrolling'),900))},{capture:true,passive:true});}
-  // Connect dialog still scrolls to the paired-server card. The rail has one Settings link.
-  function openAccount(){location.hash='#settings';setTimeout(()=>document.getElementById('pxAccount')?.scrollIntoView({block:'start'}),250)}
+  // The rail's account card is one Settings hit-target. Open at the top of #main.
+  // A retained scroll (Home's offset saved on the settings key) or scrollIntoView
+  // on the account card leaves the Settings title under the scrollport edge.
+  function pinSettingsTop(){
+    if((location.hash||'')!=='#settings')return;
+    const m=document.getElementById('main');
+    if(m)m.scrollTop=0;
+  }
+  function openAccount(){
+    if((location.hash||'')!=='#settings')location.hash='#settings';
+    pinSettingsTop();
+    requestAnimationFrame(pinSettingsTop);
+  }
+  addEventListener('hashchange',()=>{pinSettingsTop();requestAnimationFrame(pinSettingsTop)});
   const plexOrigin=()=>/Windows/i.test(navigator.userAgent)?'http://plexuw.localhost':'plexuw://localhost';
   function paintAccount(){
     const nm=document.querySelector('.profile .pxname');
