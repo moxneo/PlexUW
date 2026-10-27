@@ -1,4 +1,4 @@
-TIP-SHA: 1ec42970d621e6b689206e8345a76208c9987b80
-Tree is an Origin tip sync (Origin PR#3 tip after 0a3f01af).
+TIP-SHA: ad3f7ad906b103715f0ff40c8082ae0e04a46ece
+Tree is an Origin tip sync (Origin PR#3 tip after 1ec42970).
 desktop/ (Rust/Tauri) present.
 Nested tip tarball (plexuw-tip.tar.gz) is NOT in the GitHub tree; GitHub holds the tip tree only.

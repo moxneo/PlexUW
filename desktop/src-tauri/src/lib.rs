@@ -102,10 +102,10 @@ fn cover_taskbar(win: &WebviewWindow, enter: bool) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use std::sync::atomic::{AtomicBool, Ordering};
     use windows_sys::Win32::Foundation::HWND;
-    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO};
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_STYLE, HWND_TOP,
-        MONITOR_DEFAULTTONEAREST, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+        SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
         WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_THICKFRAME,
     };
     static BUSY: AtomicBool = AtomicBool::new(false);

@@ -7,7 +7,7 @@
 use super::*;
 use crate::plex::merge::{self as mg, Row};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 pub const MAX_INFLIGHT: usize = 4;
@@ -444,6 +444,7 @@ pub async fn collections(p: &Arc<Plex>, id: &str) -> Result<Vec<browse::Item>, S
 
 #[cfg(test)]
 mod t {
+    use std::collections::HashSet;
     use super::*;
     use crate::plex::{fixture::{FixtureTransport, FIX_ACCOUNT_TOKEN}, secrets::MemStore};
     use secrecy::SecretString;
