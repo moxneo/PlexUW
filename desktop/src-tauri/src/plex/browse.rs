@@ -139,6 +139,45 @@ fn mac32(key: &[u8; 32], msg: &str) -> String {
     m.finalize().into_bytes().iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Collapse an absolute thumb or a photo-transcode wrapper to a server-relative
+/// library image path. One `url=` decode only; the original host is dropped.
+fn canonical_image_path(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.starts_with("//") || raw.contains('\\') || raw.contains('@') { return None; }
+    let (base, query) = match raw.split_once('?') {
+        Some((b, q)) => (b, Some(q.split('#').next().unwrap_or(q))),
+        None => (raw.split('#').next().unwrap_or(raw), None),
+    };
+    let path = path_only(base)?;
+    if path == "/photo/:/transcode" {
+        let q = query?;
+        let url = url::form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == "url").map(|(_, v)| v.into_owned())?;
+        return plain_library_path(&url);
+    }
+    if image_path_ok(path) { Some(path.to_string()) } else { None }
+}
+
+fn path_only(base: &str) -> Option<&str> {
+    if let Some(rest) = base.strip_prefix("https://").or_else(|| base.strip_prefix("http://")) {
+        let idx = rest.find('/')?;
+        if rest[..idx].is_empty() { return None; }
+        Some(&rest[idx..])
+    } else if base.starts_with('/') {
+        Some(base)
+    } else {
+        None
+    }
+}
+
+fn plain_library_path(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.starts_with("//") || raw.contains('\\') || raw.contains('@') { return None; }
+    let base = raw.split(['?', '#']).next().unwrap_or(raw);
+    let path = path_only(base)?;
+    if path == "/photo/:/transcode" { return None; }
+    if image_path_ok(path) { Some(path.to_string()) } else { None }
+}
+
 impl Images {
     fn put(&self, mid: &str, path: String) -> String {
         let mut g = self.inner.lock().unwrap();
@@ -148,10 +187,11 @@ impl Images {
         id
     }
     /// Register `path` (from server metadata) for machine `mid`; returns the opaque id.
+    /// Absolute and `/photo/:/transcode?url=` forms collapse to the server-relative
+    /// library path. The host is never stored or fetched.
     pub fn register(&self, mid: &str, path: &str) -> Option<String> {
-        let path = path.split('?').next().unwrap_or("");
-        if !image_path_ok(path) { return None; }
-        Some(self.put(mid, path.to_string()))
+        let path = canonical_image_path(path)?;
+        Some(self.put(mid, path))
     }
     /// Register a plex.tv-CDN cast photo (validated by `egress::parse_public_image`).
     /// Stored under the reserved machine id `PUBLIC_MID`; JS only ever sees the opaque id.
@@ -532,6 +572,15 @@ mod t {
         let id = i.register("m", "/library/metadata/5/thumb/123?X-Plex-Token=abc").unwrap();
         assert_eq!(i.get(&id).unwrap().1, "/library/metadata/5/thumb/123");
         assert_eq!(id.len(), 32);
+        let abs = i.register("m", "http://192.168.1.8:32400/library/metadata/9/thumb/1?X-Plex-Token=sekrit").unwrap();
+        let tr = i.register("m", "/photo/:/transcode?width=240&height=360&url=%2Flibrary%2Fmetadata%2F9%2Fthumb%2F1").unwrap();
+        let wrapped = i.register("m", "http://192.168.1.8:32400/photo/:/transcode?url=http%3A%2F%2F127.0.0.1%3A32400%2Flibrary%2Fmetadata%2F9%2Fthumb%2F1").unwrap();
+        assert_eq!(i.get(&abs).unwrap().1, "/library/metadata/9/thumb/1");
+        assert_eq!(abs, tr);
+        assert_eq!(tr, wrapped);
+        assert!(i.register("m", "/photo/:/transcode?url=https://evil.example/x.jpg").is_none());
+        assert!(i.register("m", "/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F5%2Fthumb%2F..%2F..%2Fx").is_none());
+        assert!(i.register("m", "http://user:pass@192.168.1.8:32400/library/metadata/9/thumb/1").is_none());
     }
     #[test]
     fn fu7e_person_key_is_strict() {

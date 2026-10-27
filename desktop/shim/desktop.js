@@ -62,14 +62,14 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   {const sw=(sel,n)=>{const h=document.querySelector(sel);if(!h)return;const o=h.querySelector('svg');o?o.replaceWith(pxIcon(n)):h.prepend(pxIcon(n))};
    sw('.brand .logo','mark');sw('#askBtn','ask');
    const ab=document.getElementById('askBtn');if(ab){const t=ab.querySelector('span');if(t)t.textContent='Ask your library';ab.setAttribute('aria-label','Ask your library (Ctrl+K)');ab.setAttribute('aria-keyshortcuts','Control+K');ab.title='Search or ask your library (Ctrl+K)'}
-   const set=document.querySelector('.profile .pxset');if(set&&!set.querySelector('svg'))set.appendChild(pxIcon('gear'))}
+   const set=document.querySelector('.profile .pxset');if(set&&!set.querySelector('svg'))set.prepend(pxIcon('gear'))}
   // fu6 QA LOW-1: demo-mode rail (app.js #nav) uses the same px icon set; collections/playlists get an initial so they differ.
   {const nav=document.getElementById('nav');const DI=r=>r==='#home'?'home':r==='#settings'?'gear':/^#lib\/collections\//.test(r)?'folder':/^#lib\//.test(r)?'film':/^#tv\//.test(r)?'tv':/^#music\/playlist/.test(r)?'playlist':/^#music\//.test(r)?'music':'';
    const fix=()=>{if(!nav)return;nav.querySelectorAll('a[data-r]').forEach(a=>{const n=DI(a.dataset.r);const o=a.querySelector('svg');if(!n||!o||o.classList.contains('pxi'))return;o.replaceWith(pxIcon(n));
      if(/collections\/|playlist\//.test(a.dataset.r)){const t=(a.querySelector('span')||a).textContent.trim();a.dataset.ini=(t.match(/[A-Za-z0-9]/)||[''])[0].toUpperCase();a.classList.add('pxini')}})};
    fix();if(nav)new MutationObserver(fix).observe(nav,{childList:true});
   // fu6 QA LOW-2: the rail toggle's tooltip/label always names the action for the current state.
-   const tg=document.getElementById('logoBtn');const compact=()=>document.body.classList.contains('navc')||matchMedia('(max-width:1599px)').matches&&!document.body.classList.contains('navo');const lab=()=>{if(!tg)return;const c=compact();const t=(c?'Expand':'Collapse')+' sidebar';tg.setAttribute('aria-label',t);tg.setAttribute('aria-expanded',String(!c));tg.removeAttribute('title');if(c)tg.dataset.tip='Expand sidebar';else delete tg.dataset.tip};
+   const tg=document.getElementById('logoBtn');const compact=()=>document.body.classList.contains('navc')||matchMedia('(max-width:1599px)').matches&&!document.body.classList.contains('navo');const lab=()=>{if(!tg)return;const c=compact();const t=(c?'Expand':'Collapse')+' sidebar';tg.setAttribute('aria-label',t);tg.setAttribute('aria-expanded',String(!c));tg.removeAttribute('title');delete tg.dataset.tip;if(c&&!document.body.classList.contains('navo'))tg.dataset.label='Expand';else delete tg.dataset.label};
    lab();new MutationObserver(lab).observe(document.body,{attributes:true,attributeFilter:['class']});addEventListener('resize',lab);if(tg)tg.addEventListener('click',()=>setTimeout(lab,0))}
   // FU7: below 1600px the toggle opens the full rail as an overlay; click outside or Esc closes it.
   {const tg=document.getElementById('logoBtn');const narrow=()=>matchMedia('(max-width:1599px)').matches;let scrim=null;
@@ -252,17 +252,33 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   {const tm=new WeakMap();document.addEventListener('scroll',e=>{const t=e.target===document?document.documentElement:e.target;if(!(t instanceof Element))return;t.classList.add('px-scrolling');clearTimeout(tm.get(t));tm.set(t,setTimeout(()=>t.classList.remove('px-scrolling'),900))},{capture:true,passive:true});}
   // Connect dialog still scrolls to the paired-server card. The rail has one Settings link.
   function openAccount(){location.hash='#settings';setTimeout(()=>document.getElementById('pxAccount')?.scrollIntoView({block:'start'}),250)}
+  const plexOrigin=()=>/Windows/i.test(navigator.userAgent)?'http://plexuw.localhost':'plexuw://localhost';
   function paintAccount(){
     const nm=document.querySelector('.profile .pxname');
     if(!nm) return;
+    const chip=document.querySelector('.profile .pxwho .av');
+    const rail=document.querySelector('.profile .pxrailav');
+    const fill=(slot,id,gear)=>{
+      if(!slot) return;
+      slot.replaceChildren();
+      if(id){
+        const i=document.createElement('img'); i.alt='';
+        i.onerror=()=>{i.remove(); if(gear) slot.appendChild(pxIcon('gear')); else slot.hidden=true;};
+        i.src=plexOrigin()+'/img/'+id+'/80x80';
+        slot.hidden=false; slot.appendChild(i); return;
+      }
+      if(gear){slot.hidden=false; slot.appendChild(pxIcon('gear'));}
+      else slot.hidden=true;
+    };
     invoke('account_me').then(c=>{
       const name=c&&typeof c.name==='string'?c.name.trim():'';
       nm.textContent=name||'Plex';
-    }).catch(()=>{nm.textContent='Plex'});
+      const id=c&&typeof c.thumb==='string'&&/^[0-9a-f]{32}$/.test(c.thumb)?c.thumb:'';
+      fill(chip,id,false); fill(rail,id,true);
+    }).catch(()=>{nm.textContent='Plex'; fill(chip,'',false); fill(rail,'',true);});
   }
   // Real library playback. The webview never XHRs plexuw://; playlists and segments
   // come back through opaque_get. A failure clears the video element.
-  const plexOrigin=()=>/Windows/i.test(navigator.userAgent)?'http://plexuw.localhost':'plexuw://localhost';
   function b64ToU8(s){const bin=atob(s||'');const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
   let hlsPlayer=null, plexLive=false;
   function clearVid(){if(hlsPlayer){try{hlsPlayer.destroy()}catch(e){}hlsPlayer=null}const v=document.getElementById('vid');if(!v)return;try{v.pause()}catch(e){}v.onerror=null;if(v.getAttribute('src')){v.removeAttribute('src');v.load()}}

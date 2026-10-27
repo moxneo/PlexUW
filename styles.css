@@ -388,9 +388,9 @@ b,strong,.card .t{font-weight:600}
  nav .navh{font-size:0;padding:0;height:1px;background:var(--border);width:2.5rem;margin:var(--sp-2) auto}
  nav a{font-size:0;justify-content:center;padding:var(--sp-2);width:3rem;height:2.75rem;position:relative}
  nav a .ic{width:1.375rem;height:1.375rem}
- body:not(.navo) nav a::after{content:attr(data-label);position:absolute;left:calc(100% + .5rem);top:50%;transform:translateY(-50%);white-space:nowrap;font-size:var(--fs-12);padding:.25rem .5rem;border-radius:.375rem;background:#222;border:var(--hairline);opacity:0;pointer-events:none;transition:opacity var(--dur-quick);z-index:30}
- body:not(.navo) nav a:hover::after,body:not(.navo) nav a:focus-visible::after{opacity:1}
- body.navo nav a::after{content:none;display:none}
+ body:not(.navo) nav a::after,body:not(.navo) button.logo[data-label]::after{content:attr(data-label);position:absolute;left:calc(100% + .5rem);top:50%;transform:translateY(-50%);white-space:nowrap;font-size:var(--fs-12);padding:.25rem .5rem;border-radius:.375rem;background:#222;border:var(--hairline);opacity:0;pointer-events:none;transition:opacity var(--dur-quick);z-index:30}
+ body:not(.navo) nav a:hover::after,body:not(.navo) nav a:focus-visible::after,body:not(.navo) button.logo[data-label]:hover::after,body:not(.navo) button.logo[data-label]:focus-visible::after{opacity:1}
+ body.navo nav a::after,body.navo button.logo::after{content:none;display:none}
  .side-foot{display:none}.sidebar{overflow:visible}
  #npbar{left:72px}
 }
@@ -427,9 +427,9 @@ body.navc .brand{font-size:0;gap:0;flex-direction:column}body.navc .navtog{margi
 body.navc nav .navh{font-size:0;padding:0;height:1px;background:var(--border);width:2.5rem;margin:var(--sp-2) auto}
 body.navc nav a{font-size:0;justify-content:center;padding:var(--sp-2);width:3rem;height:2.75rem;position:relative}
 body.navc nav a .ic{width:1.375rem;height:1.375rem}
-body.navc:not(.navo) nav a::after{content:attr(data-label);position:absolute;left:calc(100% + .5rem);top:50%;transform:translateY(-50%);white-space:nowrap;font-size:var(--fs-12);padding:.25rem .5rem;border-radius:.375rem;background:#222;border:var(--hairline);opacity:0;pointer-events:none;transition:opacity var(--dur-quick);z-index:30}
-body.navc:not(.navo) nav a:hover::after,body.navc:not(.navo) nav a:focus-visible::after{opacity:1}
-body.navo nav a::after,body.navo #pxNav a::after{content:none!important;display:none!important}
+body.navc:not(.navo) nav a::after,body.navc:not(.navo) button.logo[data-label]::after{content:attr(data-label);position:absolute;left:calc(100% + .5rem);top:50%;transform:translateY(-50%);white-space:nowrap;font-size:var(--fs-12);padding:.25rem .5rem;border-radius:.375rem;background:#222;border:var(--hairline);opacity:0;pointer-events:none;transition:opacity var(--dur-quick);z-index:30}
+body.navc:not(.navo) nav a:hover::after,body.navc:not(.navo) nav a:focus-visible::after,body.navc:not(.navo) button.logo[data-label]:hover::after,body.navc:not(.navo) button.logo[data-label]:focus-visible::after{opacity:1}
+body.navo nav a::after,body.navo #pxNav a::after,body.navo button.logo::after{content:none!important;display:none!important}
 body.navc .side-foot,body.navc .profile .pn{display:none}body.navc .profile{padding:var(--sp-2) 0;border:0}body.navc #npbar{left:72px}
 @media (max-width:1599px){.navtog{display:none}.profile .pn{display:none}.profile{padding:var(--sp-2) 0;border:0}.brand{flex-direction:column}}
 /* segmented tabs */

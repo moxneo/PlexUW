@@ -370,7 +370,7 @@ a.pxcred:focus-visible i,button.pxcred:focus-visible i{outline:3px solid #e5a00d
 .pxnavmsg.pxload{padding:8px 12px}
 /* fu7f: posters fade in one by one as they load. */
 .pxcard .poster img.pxfade{opacity:0;transition:opacity .28s ease}.pxcard .poster img.pxfade.in{opacity:1}
-@media (prefers-reduced-motion:reduce){.pxghost,.pxcard .poster img.pxfade{transition:none}.pxload .pxsk{animation:none}}
+@media (prefers-reduced-motion:reduce){.pxghost,.pxcard .poster img.pxfade,.pxbackdrop,.pxcollage .pxcol{transition:none}.pxload .pxsk{animation:none}}
 /* fu7h MUST-1b: the top bar (Back/Forward, Ask, Voice) stays pinned while #main scrolls, so Back is
    always reachable without scrolling to the top (which would save 0). Negative margins + matching
    padding extend the bar over #main's padding without moving any content (0 px layout shift). */
@@ -378,7 +378,7 @@ body.plexmode #main>.topbar{position:sticky;top:calc(-1*var(--s4));z-index:20;ma
 body.desktop.plexmode #main>.topbar{display:none!important}
 
 /* Parity P0–P3: labeled play row, vertical strips, glass hero, logo collapse, account card. */
-:root{--px-poster-w:168px;--px-poster-h:252px;--pxamb:#1a140f}
+:root{--px-poster-w:168px;--px-poster-h:252px;--pxamb:#1a140f;--px-gutter:max(var(--s5),56px)}
 .pxstrip.pxcw{--px-poster-w:196px;--px-poster-h:294px}
 .pxdet{overflow:visible}
 .pxdtext>.pxsum{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
@@ -387,7 +387,7 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 .pxround .pxrb.lab .pxrbl{font-size:14px;font-weight:600;white-space:nowrap}
 .pxround .pxrb.lab .ic,.pxround .pxrb.lab .pxi{width:18px;height:18px}
 .pxfeat{position:relative;display:inline-flex}
-.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:#1B1D23;border:1px solid rgba(255,255,255,.1);box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:var(--chrome-bg);backdrop-filter:var(--chrome-blur);-webkit-backdrop-filter:var(--chrome-blur);border:var(--hairline);box-shadow:0 16px 40px rgba(0,0,0,.55)}
 .pxfeatmenu.up{top:auto;bottom:calc(100% + 8px)}
 .pxfeatmenu[hidden]{display:none!important}
 .pxfeatmenu .mh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8d96a8;padding:4px 8px 6px}
@@ -395,8 +395,8 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 .pxfeatmenu button:hover,.pxfeatmenu button.on{background:rgba(255,122,26,.18)}
 .pxtoast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:80;padding:10px 16px;border-radius:999px;background:#1B1D23;color:#F2F2F2;border:1px solid rgba(255,255,255,.12);opacity:0;pointer-events:none;transition:opacity .2s}
 .pxtoast.show{opacity:1}
-.pxhomehero.hascase{display:flex;align-items:flex-end;gap:clamp(22px,2.4vw,48px);max-width:min(1280px,100%);min-height:0;padding-top:4px;padding-bottom:0;box-sizing:border-box}
-.pxhomehero .pxhtext{min-width:0;max-width:640px;padding-bottom:4px}
+.pxhomehero.hascase,.pxlhero.hascase{display:flex;align-items:flex-end;gap:clamp(22px,2.4vw,48px);max-width:min(1280px,100%);min-height:0;padding-top:4px;padding-bottom:0;box-sizing:border-box}
+.pxhomehero .pxhtext,.pxlhero.hascase .pxhtext{min-width:0;max-width:640px;padding-bottom:4px}
 /* Old poster was clamp(300px, 21vw, 372px) tall. Grow toward 2× (744px) but keep the
    title bar, top bar, browsing line and the whole first Continue Watching card on screen. */
 .pxcase{position:relative;flex:0 0 auto;width:auto;height:clamp(300px,calc(100vh - 572px),744px);aspect-ratio:2/3;max-width:min(496px,42vw);border-radius:14px;overflow:hidden;display:block;background:#15171c;box-shadow:0 22px 50px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.10)}
@@ -422,9 +422,9 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 }
 body.plexmode .pxbackdrop::after{background:linear-gradient(90deg,color-mix(in srgb,var(--pxamb) 42%,rgba(14,14,16,.55)) 0%,rgba(14,14,16,.28) 46%,rgba(14,14,16,.08) 100%),linear-gradient(0deg,rgba(14,14,16,.88) 0%,rgba(14,14,16,.25) 46%,transparent 72%)}
 .pxbackdrop img{opacity:.48;filter:saturate(1.05)}
-.pxbackdrop{transition:opacity 700ms ease}
+.pxbackdrop{transition:opacity 1100ms ease-in-out}
 .pxcollage{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-.pxcollage .pxcol{position:absolute;inset:-4%;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:10px;opacity:0;transition:opacity 900ms ease;filter:blur(22px) saturate(1.25) brightness(.78);transform:scale(1.08)}
+.pxcollage .pxcol{position:absolute;inset:-4%;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:10px;opacity:0;transition:opacity 1400ms ease-in-out;filter:blur(22px) saturate(1.25) brightness(.78);transform:scale(1.08)}
 .pxcollage .pxcol.on{opacity:.55}
 .pxcollage .pxcol i{display:block;background-size:cover;background-position:center;min-height:34vh}
 .pxcollage::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(12,13,16,.82) 0%,rgba(12,13,16,.35) 40%,rgba(12,13,16,.12) 100%)}
@@ -433,6 +433,9 @@ body.pxpast .pxcollage{z-index:1}
 body.pxpast .pxbackdrop{opacity:0}
 /* Collage is position:fixed over the window. Keep the rail (opaque) above it. */
 body.plexmode:not(.navo) .sidebar{position:relative;z-index:2}
+.pxhomehero,.pxstrip.pxcw{padding-left:calc(var(--px-gutter) - var(--s5));padding-right:calc(var(--px-gutter) - var(--s5));box-sizing:border-box}
+.pxstrip.pxcw .pxstw{width:calc(100% + 2 * var(--px-gutter));margin-left:calc(-1 * var(--px-gutter));margin-right:calc(-1 * var(--px-gutter));column-gap:0}
+.pxstrip.pxcw .pxsts{padding-left:0;padding-right:0;scroll-padding-inline:0}
 .pxland{max-width:3600px;margin:0 auto 8px;min-width:0;width:100%}
 .pxlhero{min-height:min(36vh,420px);display:flex;align-items:flex-end;padding:8px 0 28px}
 .pxlhero .pxhtitle{font-size:clamp(28px,3vw,48px);font-weight:700;color:#fff;text-decoration:none}
@@ -459,8 +462,17 @@ body.plexmode:not(.navo) .sidebar{position:relative;z-index:2}
 .pxrank{position:absolute;left:8px;bottom:8px;font-size:40px;font-weight:800;line-height:1;color:#fff;text-shadow:0 2px 8px #000}
 .pxmsrv{margin:0 0 4px}
 button.logo{position:relative;background:none;border:0;padding:0;margin:0;color:inherit;cursor:pointer;display:grid;place-items:center;font:inherit}
-button.logo[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:calc(100% + 10px);top:0;transform:none;font:600 12px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;padding:4px 8px;border-radius:6px;background:#222632;color:#e6e9f0;pointer-events:none;z-index:1200}
 .profile .pn{align-items:flex-start;gap:2px}
+.profile .pxwho{display:flex;align-items:center;gap:8px;min-width:0}
+.profile .av{width:2rem;height:2rem;border-radius:50%;overflow:hidden;background:transparent;color:#e6e9f0;font-size:0}
+.profile .av[hidden]{display:none!important}
+.profile .av img{width:100%;height:100%;object-fit:cover;display:block}
+.profile .pxrailav{display:none}
+.profile .pxrailav:not(:has(img)){background:rgba(255,255,255,.08)}
+.profile .pxrailav .pxi{width:18px;height:18px}
+body.navc .profile .pxrailav:not([hidden]){display:grid}
+@media (max-width:1599px){body:not(.navo) .profile .pxrailav:not([hidden]){display:grid}}
+body.navo .profile .pxrailav{display:none!important}
 .profile .pxname{font-weight:650}
 .profile .pn a{color:#c9cfdb;text-decoration:none;font-size:12px;line-height:1.35}
 .profile .pn a:hover{color:#fff}
@@ -474,11 +486,8 @@ button.logo[data-tip]:hover::after{content:attr(data-tip);position:absolute;left
  body.navc .profile:hover .pn,body.navc .profile:focus-within .pn{display:flex!important;position:absolute;left:calc(100% + 8px);bottom:0;z-index:40;min-width:180px;padding:10px 12px;border-radius:12px;background:#1B1D23;border:1px solid rgba(255,255,255,.12);box-shadow:0 12px 32px rgba(0,0,0,.45)}
 }
 body.navo .profile .pn,body.navo .profile:hover .pn,body.navo .profile:focus-within .pn{display:flex!important;position:static!important;left:auto;min-width:0;padding:0;background:none;border:0;box-shadow:none}
-.profile .pxset{display:none;width:32px;height:32px;border-radius:8px;color:#e6e9f0;place-items:center;text-decoration:none}
-.profile .pxset .pxi{width:18px;height:18px}
-body.navc .profile .pxset{display:grid}
-@media (max-width:1599px){body:not(.navo) .profile .pxset{display:grid}}
-body.navo .profile .pxset{display:none!important}
-body.desktop.plexmode .sidebar{overflow:visible;z-index:40}
-body.desktop:not(.navo) nav a::after,body.desktop.navc:not(.navo) nav a::after{top:0;transform:none;z-index:1200;white-space:nowrap}
+.profile .pxset{display:inline-flex;align-items:center;gap:6px;color:#c9cfdb;text-decoration:none}
+.profile .pxset .pxi{width:14px;height:14px;flex:none}
+body.desktop.plexmode .sidebar{overflow:visible;z-index:40;background:var(--chrome-bg);backdrop-filter:var(--chrome-blur);-webkit-backdrop-filter:var(--chrome-blur);border-right:var(--hairline)}
+body.desktop:not(.navo) nav a::after,body.desktop.navc:not(.navo) nav a::after,body.desktop:not(.navo) button.logo[data-label]::after,body.desktop.navc:not(.navo) button.logo[data-label]::after{top:0;transform:none;z-index:1200;white-space:nowrap}
 body.desktop.fs .pxclock{top:14px}

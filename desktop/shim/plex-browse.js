@@ -572,7 +572,15 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if (heroIt) {
       const bd = backdrop(heroIt); if (bd) view.appendChild(bd);
       const hue = img(heroIt.art || heroIt.thumb, 64, 64); if (hue) ambientHue(hue);
-      const w = el('div', 'pxlhero'); const tx = el('div', 'pxhtext');
+      const w = el('div', 'pxlhero');
+      const cu = img(heroIt.poster || heroIt.thumb, 420, 630);
+      if (cu) {
+        const c2 = el('a', 'pxcase'); c2.href = '#px/item/' + heroIt.id; c2.tabIndex = -1; c2.setAttribute('aria-hidden', 'true');
+        const ci = el('img'); ci.alt = ''; ci.decoding = 'async'; ci.src = cu; ci.onerror = () => { c2.remove(); w.classList.remove('hascase'); };
+        c2.appendChild(ci); c2.appendChild(el('i', 'pxcasesp'));
+        w.appendChild(c2); w.classList.add('hascase');
+      }
+      const tx = el('div', 'pxhtext');
       const a = el('a', 'pxhtitle', heroIt.kind === 'episode' && heroIt.grandparentTitle ? heroIt.grandparentTitle : (heroIt.title || 'Untitled'));
       a.href = '#px/item/' + heroIt.id; tx.appendChild(a);
       if (heroIt.kind === 'episode') tx.appendChild(el('div', 'muted', `S${heroIt.parentIndex ?? '?'} · E${heroIt.index ?? '?'} · ${heroIt.title}`));
@@ -762,7 +770,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     menu.classList.remove('up');
     const r = anchor.getBoundingClientRect();
     const below = (window.innerHeight || 0) - r.bottom;
-    if (below < 240 && r.top > below) menu.classList.add('up');
+    const need = Math.max(240, menu.offsetHeight || 0);
+    if (below < need && r.top > below) menu.classList.add('up');
   }
   async function item(id, g) {
     if (!ID.test(id)) return status('Not found');
