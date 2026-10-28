@@ -13,7 +13,7 @@ globalThis.navigator ??= { userAgent: 'node' };
 const tmp = join(mkdtempSync(join(tmpdir(), 'pxn-')), 'plex-browse.mjs');
 writeFileSync(tmp, src);
 writeFileSync(join(dirname(tmp), 'px-icons.js'), readFileSync(join(here, '..', 'px-icons.js'), 'utf8'));
-const { scrollMemory, navInput, pageSwap } = await import(tmp);
+const { scrollMemory, navInput, pageSwap, lockStill } = await import(tmp);
 
 // Minimal browser history: hash entries with state, back/forward.
 function fakeHistory() {
@@ -191,6 +191,32 @@ test('page swap bakes a painted poster behind the img and drops the fade class b
   assert.ok(sw.active);
 });
 
+test('hover lock keeps the painted thumb and does not refetch', () => {
+  const doc = { createElement(tag) {
+    const n = node('canvas');
+    n.getContext = () => ({ drawImage(im) { n.drew = im; } });
+    return n;
+  } };
+  const img = node('img'); img.classList.add('pxfade'); img.classList.add('in');
+  img.naturalWidth = 32; img.naturalHeight = 18; img.dataset = {}; img.loading = 'lazy';
+  img.src = 'plexuw://localhost/img/' + 'a'.repeat(32) + '/240x160';
+  img.ownerDocument = doc;
+  const poster = node('div'); poster.className = 'poster'; poster.appendChild(img);
+  lockStill(img);
+  assert.equal(poster.children[0].className, 'pxbake');
+  assert.equal(poster.children[0].drew, img);
+  assert.equal(poster.children[1], img);
+  assert.equal(img.classList.contains('pxfade'), false);
+  assert.equal(img.style.opacity, '1');
+  assert.equal(img.loading, 'eager');
+  assert.equal(img.src, 'plexuw://localhost/img/' + 'a'.repeat(32) + '/240x160');
+  const draws = poster.children[0].drew;
+  lockStill(img);
+  assert.equal(poster.children.length, 2, 'a second hover does not remount');
+  assert.equal(poster.children[0].drew, draws);
+  assert.equal(img.src, 'plexuw://localhost/img/' + 'a'.repeat(32) + '/240x160');
+});
+
 test('fu7f wiring: no raw loading text, back control, fade-in posters, show-page popover, dimmed backdrop', () => {
   assert.doesNotMatch(src, /'Loading…'|'Loading libraries…'/, 'no visible loading strings left');
   assert.match(src, /function loading\(target\) \{[^\n]*aria-label', 'Loading'[^\n]*pxsk/);
@@ -204,7 +230,9 @@ test('fu7f wiring: no raw loading text, back control, fade-in posters, show-page
   assert.match(src, /else if \(sm\.canForward\) history\.forward\(\)/);
   assert.doesNotMatch(src, /pxbkb/);
   assert.match(src, /addEventListener\('mouseup'/);
-  assert.match(src, /i\.className = 'pxfade'; i\.onload = \(\) => i\.classList\.add\('in'\)/);
+  assert.match(src, /i\.className = 'pxfade'; i\.onload = \(\) => \{ i\.classList\.add\('in'\); lockStill\(i\); \}/);
+  assert.match(src, /i\.loading = 'eager'/);
+  assert.match(css, /a\.card\.pxcard:hover\{transform:none/);
   assert.match(css, /\.pxcard \.poster img\.pxfade\{opacity:0;transition:opacity/);
   // credits without a person id (seen on some show pages) still open the popover
   assert.match(src, /p\.onclick = \(\) => openPersonLocal\(p, x, it\)/);

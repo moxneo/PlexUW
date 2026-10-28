@@ -70,7 +70,15 @@ test('player chrome: glass edge bars, real controls, scrub frame, volume', () =>
   assert.match(app, /showtop/);
   assert.match(app, /showbot/);
   assert.match(app, /armEdge/);
-  assert.match(app, /Fit while a side panel is open/);
+  assert.match(app, /CHROME_DWELL=3000/);
+  assert.match(app, /function armBar\(which,want\)/);
+  assert.match(app, /d\.t=setTimeout\(\(\)=>\{d\.hold=false;if\(!d\.on\)chrome\(\);\},CHROME_DWELL\)/);
+  assert.match(app, /classList\.add\('povl'\)/);
+  assert.match(app, /setProperty\('--vl','0px'\)/);
+  assert.match(app, /function paintPlexDrawers\(\)/);
+  assert.match(app, /px-play-drawers/);
+  assert.doesNotMatch(app, /Fit while a side panel is open/);
+  assert.doesNotMatch(app, /innerWidth<1600/);
   assert.doesNotMatch(app, /#play use/);
   assert.doesNotMatch(app, /sprite\.jpg/);
   assert.doesNotMatch(app, /Fit · panel/);
@@ -98,6 +106,13 @@ test('player chrome: glass edge bars, real controls, scrub frame, volume', () =>
   assert.match(styles, /#stage \.edge \.pill[^}]*var\(--px-glass\)/);
   assert.match(app, /const wash=art\(cur,320,180\)/);
   assert.match(app, /\$\('#ambient'\)\.style\.backgroundImage=wash/);
+  assert.match(app, /\$\$\('#stage \.panel \.art'\)/);
+  assert.match(styles, /#player \.panel \.art\{display:none\}/);
+  assert.match(styles, /#stage\.povl #vidwrap\{left:0;width:100%\}/);
+  assert.match(browse, /function upNextList\(it\)/);
+  assert.match(browse, /summary: clip\(it\.summary, 600\)/);
+  assert.match(browse, /upNextReady: false/);
+  assert.match(browse, /new CustomEvent\('px-play-drawers'\)/);
   assert.doesNotMatch(html, /stop-color="var\(--accent/);
   assert.match(html, /stop-color="#ffffff"/);
   assert.match(css, /background:var\(--px-plate\)/);
@@ -107,6 +122,110 @@ test('player chrome: glass edge bars, real controls, scrub frame, volume', () =>
   assert.match(desktop, /__pxReadVol/);
   assert.match(browse, /const chapters = durMs/);
 });
+test('top and bottom chrome dwell 3s and cancel on re-enter', () => {
+  const start = app.indexOf('const CHROME_DWELL=3000;');
+  const end = app.indexOf('function hideChromeNow');
+  assert.ok(start > 0 && end > start);
+  const classes = new Set();
+  const st = { classList: {
+    toggle(name, on) { if (on) classes.add(name); else classes.delete(name); },
+    contains(name) { return classes.has(name); },
+  } };
+  const pending = [];
+  let seq = 1;
+  const setTimeout = (fn, ms) => { const id = seq++; pending.push({ id, fn, ms }); return id; };
+  const clearTimeout = id => { const i = pending.findIndex(p => p.id === id); if (i >= 0) pending.splice(i, 1); };
+  const api = new Function('st', '$', 'setTimeout', 'clearTimeout', 'pin', 'kbd', `${app.slice(start, end)}
+    return { armBar, CHROME_DWELL };`)(st, () => ({ hidden: true }), setTimeout, clearTimeout, false, false);
+  const shown = which => classes.has(which === 'top' ? 'showtop' : 'showbot');
+  api.armBar('top', true);
+  api.armBar('bot', true);
+  assert.equal(shown('top'), true);
+  assert.equal(shown('bot'), true);
+  api.armBar('top', false);
+  assert.equal(shown('top'), true, 'top stays through the grace');
+  assert.equal(shown('bot'), true, 'bottom is untouched');
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].ms, api.CHROME_DWELL);
+  api.armBar('top', true);
+  assert.equal(pending.length, 0, 're-enter cancels the hide');
+  assert.equal(shown('top'), true);
+  api.armBar('top', false);
+  api.armBar('bot', false);
+  assert.equal(shown('top'), true);
+  assert.equal(shown('bot'), true);
+  pending.splice(0).forEach(p => p.fn());
+  assert.equal(shown('top'), false);
+  assert.equal(shown('bot'), false);
+});
+
+test('plex drawers paint one info side and one up-next list over the picture', () => {
+  const start = app.indexOf('function pxImg');
+  const end = app.indexOf("addEventListener('px-play-drawers'");
+  assert.ok(start > 0 && end > start);
+  const nodes = [];
+  function make(tag) {
+    const node = { tag, className: '', style: {}, children: [], attrs: {}, listeners: {}, dataset: {} };
+    node.childNodes = node.children;
+    let text = '';
+    Object.defineProperty(node, 'textContent', {
+      get() { return text; },
+      set(v) { text = String(v); if (v === '') node.children.length = 0; },
+    });
+    node.appendChild = c => { node.children.push(c); return c; };
+    node.setAttribute = (k, v) => { node.attrs[k] = v; };
+    node.addEventListener = (type, fn) => { (node.listeners[type] ||= []).push(fn); };
+    nodes.push(node);
+    return node;
+  }
+  const details = make('div'), up = make('div');
+  const ctx = {
+    title: 'Guns Up', year: 2025, kind: 'movie', summary: 'A real synopsis.', studio: 'Example',
+    rating: 7.5, genres: ['Action'], tagline: 'Hold the line', contentRating: 'R',
+    poster: 'a'.repeat(32), directors: ['Ada Morrow'], cast: [{ name: 'Ada Morrow', role: 'Lead' }],
+    upNextReady: true,
+    upNext: [{ id: 'b'.repeat(24), title: 'Next Reel', year: 2024, kind: 'movie', thumb: 'c'.repeat(32) }],
+  };
+  const location = { hash: '' };
+  const api = new Function('document', '$', 'plexCtx', 'cur', 'navigator', 'window', 'location', `${app.slice(start, end)}
+    return { paintPlexDrawers, pxImg };`)(
+    { createElement: make },
+    sel => sel === '#detailsBody' ? details : sel === '#upList' ? up : null,
+    () => ctx,
+    { title: 'Guns Up', mins: 100 },
+    { userAgent: 'Linux' },
+    { devicePixelRatio: 1 },
+    location,
+  );
+  assert.equal(api.pxImg('http://evil.example/x', 10, 10), '');
+  assert.match(api.pxImg('a'.repeat(32), 240, 360), /^plexuw:\/\/localhost\/img\/a{32}\//);
+  api.paintPlexDrawers();
+  const texts = n => [n.textContent || '', ...(n.children || []).flatMap(texts)];
+  const infoText = texts(details).join('\n');
+  assert.match(infoText, /Guns Up/);
+  assert.match(infoText, /A real synopsis/);
+  assert.match(infoText, /Ada Morrow/);
+  assert.doesNotMatch(infoText, /Playing from your Plex library/);
+  const upText = texts(up).join('\n');
+  assert.match(upText, /Next Reel/);
+  assert.match(upText, /2024/);
+  const row = up.children.find(n => n.className === 'up');
+  assert.ok(row, 'up next row');
+  row.listeners.click[0]({ stopPropagation() {} });
+  assert.equal(location.hash, '#px/item/' + 'b'.repeat(24));
+  assert.match(app, /if\(now\)\{const other=id==='#pDetails'\?'#pUpnext':'#pDetails'/);
+  assert.match(styles, /#stage\.povl #vidwrap\{left:0;width:100%\}/);
+});
+
+test('play icon sync runs after chrome dwell exists', () => {
+  // sync() calls vis() → chrome(). const dwell is in the temporal dead zone until its line.
+  // Calling sync on the play-handler line aborted app.js, so #player/plex never mounted and Home stayed up.
+  const dwell = app.indexOf('const dwell=');
+  const call = app.indexOf('\nsync();');
+  assert.ok(dwell > 0 && call > dwell);
+  assert.doesNotMatch(app, /vid\.onplay=vid\.onpause=sync;sync\(\)/);
+});
+
 test('shipping UI has no demo mode and sync-web stubs the catalog', () => {
   assert.doesNotMatch(desktop, /use_demo/);
   assert.doesNotMatch(desktop, /demo data/i);

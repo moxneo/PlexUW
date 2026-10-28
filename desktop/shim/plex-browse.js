@@ -206,6 +206,29 @@ export function navInput(e) {
 // An inline opacity lock is not enough. The shelf rule is `.pxfade { opacity:0; transition:.28s }`
 // plus loading=lazy. WebKit restarts that transition when the node is reparented into the
 // transformed ghost, and a moved lazy image can drop its bitmap. Hero art has neither, so it stayed.
+// Keep a decoded frame under the img and drop the fade class. Hover must not
+// restart opacity:0 or leave the tile on the dark plate while a no-store refetch runs.
+export function lockStill(img, doc) {
+  if (!img) return;
+  const d = doc || img.ownerDocument;
+  if (img.naturalWidth && !(img.dataset && img.dataset.baked) && img.parentNode && d && d.createElement) {
+    try {
+      const c = d.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.width && c.height && c.getContext && c.getContext('2d');
+      if (x) {
+        x.drawImage(img, 0, 0);
+        c.className = 'pxbake'; c.setAttribute('aria-hidden', 'true');
+        if (img.dataset) img.dataset.baked = '1';
+        img.parentNode.insertBefore(c, img);
+      }
+    } catch (e) { /* undecoded draw: the img itself is still the paint */ }
+  }
+  if (img.classList) img.classList.remove('pxfade');
+  if (img.naturalWidth) { img.loading = 'eager'; img.decoding = 'sync'; }
+  if (img.style) { img.style.transition = 'none'; img.style.opacity = '1'; }
+}
+
 export function pageSwap({ doc, scroller, view, host, fadeMs = 180, onRetire = null }) {
   let ghost = null, t = 0;
   const fading = new Set();
@@ -238,25 +261,7 @@ export function pageSwap({ doc, scroller, view, host, fadeMs = 180, onRetire = n
   // and a restarted fade or a cleared bitmap shows the copy instead of the empty tile.
   const holdPainted = root => {
     if (!root || !root.querySelectorAll) return;
-    root.querySelectorAll('.pxcard .poster img.pxfade.in').forEach(img => {
-      if (img.naturalWidth && !(img.dataset && img.dataset.baked) && img.parentNode) {
-        try {
-          const c = doc.createElement('canvas');
-          c.width = img.naturalWidth; c.height = img.naturalHeight;
-          const x = c.width && c.height && c.getContext && c.getContext('2d');
-          if (x) {
-            x.drawImage(img, 0, 0);
-            c.className = 'pxbake'; c.setAttribute('aria-hidden', 'true');
-            if (img.dataset) img.dataset.baked = '1';
-            img.parentNode.insertBefore(c, img);
-          }
-        } catch (e) { /* undecoded draw: the img itself is still the paint */ }
-      }
-      // Commit this before the move. Leaving .pxfade on is what let the 0.28s fade restart.
-      if (img.classList) img.classList.remove('pxfade');
-      if (img.naturalWidth) { img.loading = 'eager'; img.decoding = 'sync'; }
-      img.style.transition = 'none'; img.style.opacity = '1';
-    });
+    root.querySelectorAll('.pxcard .poster img.pxfade.in, .pxchup .poster img, .pxpin .poster img').forEach(img => lockStill(img, doc));
     if (typeof root.offsetWidth === 'number') void root.offsetWidth;
   };
   return {
@@ -359,7 +364,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const music = it.kind === 'artist' || it.kind === 'album', sq = music ? 300 : 200;
     const p = el('div', 'poster'); const src = img(cardArt(it, wide, still), wide ? 320 : sq, wide ? 180 : 300);
     const ph = () => { if (!music) return; p.appendChild(el('span', 'pxph', ((it.title || '?').match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase())); };
-    if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.decoding = 'async'; i.className = 'pxfade'; i.onload = () => i.classList.add('in'); i.src = src; i.onerror = () => { i.remove(); ph(); }; p.appendChild(i); if (i.complete && i.naturalWidth) i.classList.add('in'); } else ph();
+    if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.decoding = 'async'; i.className = 'pxfade'; i.onload = () => { i.classList.add('in'); lockStill(i); }; i.src = src; i.onerror = () => { i.remove(); ph(); }; p.appendChild(i); if (i.complete && i.naturalWidth) i.onload(); } else ph();
     if (it.viewOffsetMs && it.durationMs) { const b = el('div', 'pxprog'); const f = el('i'); f.style.width = Math.min(100, it.viewOffsetMs / it.durationMs * 100).toFixed(1) + '%'; b.appendChild(f); p.appendChild(b); }
     if (it.watched && !music) p.appendChild(el('span', 'pxwatched', '✓'));
     a.appendChild(p);
@@ -957,13 +962,20 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if (markers.length) { const m = el('p', 'muted small'); m.textContent = markers.map(x => `${x.kind === 'credits' ? 'Credits' : 'Intro'} ${tc(x.startMs)}–${tc(x.endMs)}`).join(' · '); body.appendChild(m); }
     body.appendChild(el('h4', null, 'Up Next')); const up = el('div', 'pxuplist'); body.appendChild(up); const w = loading(up);
     const add = list => { w.remove(); if (!list.length) { up.appendChild(el('p', 'muted small', 'Nothing queued.')); return; }
-      list.slice(0, 12).forEach(x => { const a = el('a', 'up'); a.href = '#px/item/' + x.id; const pp = el('div', 'poster'); const src = img(x.thumb || x.art, 224, 126); if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.src = src; i.onerror = () => i.remove(); pp.appendChild(i); } a.appendChild(pp);
+      list.slice(0, 12).forEach(x => { const a = el('a', 'up'); a.href = '#px/item/' + x.id; const pp = el('div', 'poster'); const src = img(x.thumb || x.art, 224, 126); if (src) { const i = el('img'); i.alt = ''; i.loading = 'eager'; i.decoding = 'async'; i.className = 'pxfade'; const src0 = src; i.onload = () => { i.classList.add('in'); lockStill(i); }; i.src = src0; i.onerror = () => i.remove(); pp.appendChild(i); if (i.complete && i.naturalWidth) i.onload(); } a.appendChild(pp);
         const t = el('div'); t.appendChild(el('b', null, x.kind === 'episode' ? `E${x.index ?? '?'} · ${x.title}` : x.title)); t.appendChild(el('div', 'muted small', x.kind === 'episode' ? (x.grandparentTitle || '') : (x.year ?? ''))); a.appendChild(t); up.appendChild(a); }); };
-    const q = it.kind === 'episode' && ID.test(it.parentId || '') ? invoke('browse_children', { id: it.parentId }).then(k => k.filter(x => (x.index ?? 0) > (it.index ?? 0)))
-      : it.kind === 'season' ? invoke('browse_children', { id: it.id }).then(k => k.filter(x => !x.watched))
-      : browseHome(false).then(v => dropMusic(v && v.onDeck).filter(x => x.id !== it.id));
-    q.then(l => { if (gen === g0) add(l); }).catch(() => { if (gen === g0) add([]); });
+    upNextList(it).then(l => { if (gen === g0) add(l); }).catch(() => { if (gen === g0) add([]); });
     return sec;
+  }
+  function upNextList(it) {
+    if (it.kind === 'episode' && ID.test(it.parentId || '')) return invoke('browse_children', { id: it.parentId }).then(k => (k || []).filter(x => (x.index ?? 0) > (it.index ?? 0)));
+    if (it.kind === 'season') return invoke('browse_children', { id: it.id }).then(k => (k || []).filter(x => !x.watched));
+    return browseHome(false).then(v => dropMusic(v && v.onDeck).filter(x => x.id !== it.id));
+  }
+  const clip = (s, n) => typeof s === 'string' ? s.slice(0, n) : '';
+  const opaqueArt = id => typeof id === 'string' && HEX.test(id) ? id : '';
+  function upNextCard(x) {
+    return { id: ID.test(x && x.id || '') ? x.id : '', title: clip(x && x.title, 120), year: (x && x.year) || '', kind: clip(x && x.kind, 16), index: x && x.index != null ? x.index : '', show: clip(x && x.grandparentTitle, 120), thumb: opaqueArt((x && (x.thumb || x.art || x.poster)) || '') };
   }
   function startTitlePlay(it, fromStart) {
     if (!it || !it.id) return;
@@ -974,9 +986,23 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     it.playVersion = null;
     const durMs = it.durationMs || 0;
     const chapters = durMs > 0 ? (it.chapters || []).slice(0, 48).map(c => ({ t: typeof c.title === 'string' ? c.title.slice(0, 80) : '', at: Math.max(0, Math.min(1, (c.startMs || 0) / durMs)) })) : [];
-    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: durMs, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0), chapters };
-    try { sessionStorage.setItem('pxPlayCtx', JSON.stringify(ctx)); } catch (e) {}
+    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: durMs, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0), chapters, summary: clip(it.summary, 600), poster: opaqueArt(it.poster || it.thumb), thumb: opaqueArt(it.thumb || it.art), art: opaqueArt(it.art), studio: clip(it.studio, 80), rating: typeof it.audienceRating === 'number' ? it.audienceRating : (typeof it.rating === 'number' ? it.rating : ''), contentRating: clip(it.contentRating, 16), tagline: clip(it.tagline, 160), genres: (it.genres || []).filter(g => typeof g === 'string').slice(0, 6).map(g => g.slice(0, 40)), directors: (it.directors || []).filter(x => typeof x === 'string').slice(0, 4).map(x => x.slice(0, 80)), cast: (it.cast || []).slice(0, 8).map(c => ({ name: clip(c && c.name, 80), role: clip(c && c.role, 40) })).filter(c => c.name), upNext: [], upNextReady: false };
+    const write = o => { try { sessionStorage.setItem('pxPlayCtx', JSON.stringify(o)); } catch (e) {} };
+    write(ctx);
     location.hash = '#player/plex';
+    upNextList(it).then(list => {
+      let cur = {}; try { cur = JSON.parse(sessionStorage.getItem('pxPlayCtx') || '{}'); } catch (e) { cur = {}; }
+      if (cur.plexId !== it.id) return;
+      cur.upNext = (list || []).slice(0, 12).map(upNextCard).filter(x => x.title);
+      cur.upNextReady = true;
+      write(cur);
+      try { window.dispatchEvent(new CustomEvent('px-play-drawers')); } catch (e) {}
+    }).catch(() => {
+      let cur = {}; try { cur = JSON.parse(sessionStorage.getItem('pxPlayCtx') || '{}'); } catch (e) { cur = {}; }
+      if (cur.plexId !== it.id) return;
+      cur.upNext = []; cur.upNextReady = true; write(cur);
+      try { window.dispatchEvent(new CustomEvent('px-play-drawers')); } catch (e) {}
+    });
   }
   function pickedVersion(it) {
     const vs = it.versions || [];
