@@ -69,7 +69,7 @@ test('Chapters & Up Next starts collapsed under the actions, and a summary fills
   assert.equal(chBody.hidden, false);
   assert.equal(w.location.hash, hash);
   const labels = [...play.querySelectorAll('.pxrbl')].map(n => n.textContent);
-  for (const lab of ['Play', 'Play from start', 'Mark watched', 'Watchlist · coming soon', 'More']) {
+  for (const lab of ['Play', 'Play from start', 'Mark watched', 'Watchlist unavailable', 'More']) {
     assert.ok(labels.includes(lab), labels.join(' | '));
   }
 

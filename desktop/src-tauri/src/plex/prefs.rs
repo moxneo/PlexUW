@@ -32,6 +32,8 @@ pub struct Prefs {
     pub language_source: String,
     pub show_mock_ai: bool,
     pub allow_insecure: String,
+    /// Last Home JSON for a cold paint. Titles and opaque ids only. Never a token.
+    pub home_snap: String,
 }
 
 impl Default for Prefs {
@@ -57,8 +59,20 @@ impl Default for Prefs {
             language_source: "plex-account".into(),
             show_mock_ai: true,
             allow_insecure: "never".into(),
+            home_snap: String::new(),
         }
     }
+}
+
+/// Disk Home snapshot: bounded, and it must not carry a token, a host, or a password.
+pub fn snap_ok(s: &str) -> bool {
+    s.len() <= 400_000
+        && !s.contains("X-Plex-Token")
+        && !s.to_ascii_lowercase().contains("authtoken")
+        && !s.to_ascii_lowercase().contains("accesstoken")
+        && !s.to_ascii_lowercase().contains("plex.direct")
+        && !s.to_ascii_lowercase().contains("password")
+        && !s.contains("SecretString")
 }
 
 impl Prefs {
@@ -87,6 +101,7 @@ impl Prefs {
         }
         if let Ok(mut n) = serde_json::from_value::<Prefs>(cur) {
             n.client_id = keep_id;
+            if !snap_ok(&n.home_snap) { n.home_snap = self.home_snap.clone(); }
             n.skip_prompt_seconds = n.skip_prompt_seconds.clamp(10, 20);
             let ok = |s: &str, a: &[&str]| a.contains(&s);
             let skip = ["prompt", "skip-automatically"];
@@ -127,5 +142,12 @@ mod t {
         assert_eq!(p.skip_intro, "skip-automatically");
         p.apply(&serde_json::json!({"allowInsecure":"local-only"}));
         assert_eq!(p.allow_insecure, "never");
+        p.apply(&serde_json::json!({"homeSnap":"{\"server\":\"Mox\",\"home\":{}}"}));
+        assert!(p.home_snap.contains("Mox"));
+        p.apply(&serde_json::json!({"homeSnap":"{\"X-Plex-Token\":\"sekrit\"}","skipIntro":"prompt"}));
+        assert!(!p.home_snap.contains("sekrit"));
+        assert_eq!(p.skip_intro, "prompt");
+        assert!(!snap_ok("https://10-0-0-2.abc.plex.direct:32400"));
+        assert!(snap_ok(""));
     }
 }

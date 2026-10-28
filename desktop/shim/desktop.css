@@ -380,6 +380,8 @@ a.pxcred:focus-visible i,button.pxcred:focus-visible i{outline:3px solid #e5a00d
 .pxnavmsg.pxload{padding:8px 12px}
 /* fu7f: posters fade in one by one as they load. */
 .pxcard .poster img.pxfade{opacity:0;transition:opacity .28s ease}.pxcard .poster img.pxfade.in{opacity:1}
+/* Under the img. Shows through only when WebKit fades or drops the moved poster. */
+.pxcard .poster canvas.pxbake{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
 @media (prefers-reduced-motion:reduce){.pxghost,.pxcard .poster img.pxfade,.pxbackdrop,.pxcollage .pxcol{transition:none}.pxload .pxsk{animation:none}}
 /* fu7h MUST-1b: the top bar (Back/Forward, Ask, Voice) stays pinned while #main scrolls, so Back is
    always reachable without scrolling to the top (which would save 0). Negative margins + matching
@@ -397,7 +399,7 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 .pxround .pxrb.lab .pxrbl{font-size:14px;font-weight:600;white-space:nowrap}
 .pxround .pxrb.lab .ic,.pxround .pxrb.lab .pxi{width:18px;height:18px}
 .pxfeat{position:relative;display:inline-flex}
-.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);display:block;min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.07) 38%,rgba(255,255,255,.04)),rgba(92,92,98,.46);backdrop-filter:blur(40px) saturate(180%);-webkit-backdrop-filter:blur(40px) saturate(180%);border:1px solid rgba(255,255,255,.2);box-shadow:0 16px 40px rgba(0,0,0,.38),inset 0 1px 0 rgba(255,255,255,.32)}
+.pxfeatmenu{position:absolute;left:0;top:calc(100% + 8px);display:block;min-width:240px;max-width:320px;z-index:80;padding:8px;border-radius:12px;background:var(--px-glass);backdrop-filter:var(--px-glass-blur);-webkit-backdrop-filter:var(--px-glass-blur);border:var(--px-glass-line);box-shadow:var(--px-glass-shadow)}
 .pxfeatmenu.pxup{top:auto;bottom:calc(100% + 8px)}
 .pxfeatmenu[hidden]{display:none!important}
 .pxfeatmenu .mh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8d96a8;padding:4px 8px 6px}
@@ -508,12 +510,12 @@ body.plexmode #setView{
   margin:0;
   padding:1.35rem 1.4rem 1.6rem;
   border-radius:16px;
-  background:rgba(16,17,20,.97);
-  -webkit-backdrop-filter:blur(18px) saturate(140%);
-  backdrop-filter:blur(18px) saturate(140%);
-  border:1px solid rgba(255,255,255,.12);
-  color:#f4f6f8;
-  box-shadow:0 18px 48px rgba(0,0,0,.38);
+  background:var(--px-plate);
+  -webkit-backdrop-filter:var(--px-plate-blur);
+  backdrop-filter:var(--px-plate-blur);
+  border:var(--px-plate-line);
+  color:var(--px-ink);
+  box-shadow:var(--px-plate-shadow);
 }
 body.plexmode #setView > .row-title{
   margin:0 0 .9rem;
@@ -525,12 +527,12 @@ body.plexmode #setView > .row-title{
 body.plexmode #setView .setcard{
   background:#23262e;
   border-color:rgba(255,255,255,.14);
-  color:#f4f6f8;
+  color:var(--px-ink);
 }
 body.plexmode #setView .setcard h3{color:#fff}
 body.plexmode #setView .muted,
 body.plexmode #setView .note,
-body.plexmode #setView .frow label{color:#d5dae3}
+body.plexmode #setView .frow label{color:var(--px-ink-dim)}
 
 /* Nav rail: one icon size, one left anchor. Expanded and collapsed share the
    same 72px icon column; only the sidebar width changes, so labels appear

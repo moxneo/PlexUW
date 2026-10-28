@@ -11,6 +11,7 @@ fn main() {
         "browse_home", "browse_section", "browse_section_hubs", "browse_facet", "browse_collections", "browse_collection",
         "browse_item", "browse_children", "browse_search", "play_start", "opaque_get", "playback_stop", "manual_confirm", "ai_migration_failed", "browse_letters", "version_pick",
         "browse_person", "browse_related", "account_me", "mark_watched",
+        "watchlist_list", "watchlist_add", "watchlist_remove",
     ];
     let mut cmds: Vec<&'static str> = base.to_vec();
     if mock { cmds.push("shot_id"); }

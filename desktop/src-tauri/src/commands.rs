@@ -22,6 +22,7 @@ use url::Url;
 
 mod mx;
 mod play;
+mod watchlist;
 pub use mx::HomeView;
 
 pub struct Plex {
@@ -398,6 +399,7 @@ fn finish_sign_out(p: &Plex, wiped: Result<usize, StoreError>) -> Result<SourceV
     let _ = std::fs::remove_file(&p.trust_path);
     p.prefs.lock().unwrap().manual_host.clear();
     p.prefs.lock().unwrap().selected_server = None;
+    wipe_session_disk(p);
     p.save();
     let v = p.set_source(Box::new(MockSource { reason: "first-run" }));
     match wiped {
@@ -712,6 +714,7 @@ async fn mark_watched_inner(p: &Arc<Plex>, id: &str, watched: bool) -> Result<()
     url.set_query(Some(&q));
     let r = p.egress.send(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::Server(mid), Duration::from_secs(15)).await.map_err(|_| "mark".to_string())?;
     if !(200..300).contains(&r.status) { return Err("mark".into()); }
+    p.mx.drop_home_rows();
     Ok(())
 }
 
@@ -722,9 +725,30 @@ pub async fn opaque_get(p: P<'_>, kind: String, id: String) -> Result<play::Opaq
     Ok(play::opaque(p.inner(), &kind, &id).await)
 }
 
-/// N2: playback stop clears the HLS id map.
+/// N2: playback stop clears the HLS id map. Home/Continue Watching rows are stale after a play.
 #[tauri::command]
-pub fn playback_stop(p: P<'_>) { p.hls.clear(); }
+pub fn playback_stop(p: P<'_>) { p.hls.clear(); p.mx.drop_home_rows(); }
+
+/// Sign-out and server-epoch wipes. The Home disk snapshot is titles and opaque ids only.
+pub(crate) fn wipe_session_disk(p: &Plex) {
+    p.prefs.lock().unwrap().home_snap.clear();
+    p.mx.drop_home_rows();
+}
+
+#[tauri::command]
+pub async fn watchlist_list(p: P<'_>) -> Result<Vec<watchlist::WatchCard>, String> {
+    watchlist::list(&p.inner().clone()).await
+}
+
+#[tauri::command]
+pub async fn watchlist_add(p: P<'_>, id: String) -> Result<(), String> {
+    watchlist::add(&p.inner().clone(), &id).await
+}
+
+#[tauri::command]
+pub async fn watchlist_remove(p: P<'_>, rating_key: String) -> Result<(), String> {
+    watchlist::remove(&p.inner().clone(), &rating_key).await
+}
 
 pub struct ProxyResp { pub status: u16, pub content_type: Option<&'static str>, pub body: Vec<u8>, pub content_range: Option<String> }
 impl ProxyResp { fn deny(status: u16) -> Self { ProxyResp { status, content_type: None, body: vec![], content_range: None } } }

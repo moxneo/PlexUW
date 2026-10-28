@@ -50,6 +50,14 @@ impl Mx {
         *self.cache.lock().unwrap() = Cache::default();
         self.views.lock().unwrap().1.clear();
     }
+    /// Drop Home rows that move when someone watches. Sections stay cached.
+    pub fn drop_home_rows(&self) {
+        let mut c = self.cache.lock().unwrap();
+        let drop = |k: &str| k == "cw" || k == "od" || k == "promoted";
+        c.done.retain(|(k, _), _| !drop(k));
+        c.inflight.retain(|(k, _), _| !drop(k));
+        c.misses.retain(|(k, _), _| !drop(k));
+    }
 }
 
 /// Online servers in merge order: the connected one first, then owned, then by name.
@@ -206,7 +214,7 @@ pub struct LibView { pub id: String, pub title: String, pub kind: String, pub se
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct HomeView { pub sections: Vec<LibView>, pub continue_watching: Vec<browse::Item>, pub on_deck: Vec<browse::Item>, pub hubs: Vec<browse::Hub>, pub pending: bool, pub answered: u32, pub servers: u32 }
+pub struct HomeView { pub sections: Vec<LibView>, pub continue_watching: Vec<browse::Item>, pub on_deck: Vec<browse::Item>, pub hubs: Vec<browse::Hub>, pub pending: bool, pub answered: u32, pub servers: u32, pub epoch: u64 }
 
 fn lib_title(kind: &str) -> Option<&'static str> { match kind { "movie" => Some("Movies"), "show" => Some("TV Shows"), _ => None } }
 
@@ -247,7 +255,7 @@ pub async fn home(p: &Arc<Plex>) -> Result<HomeView, String> {
         on_deck: mg::dedupe(odr, true).into_iter().take(40).map(|r| r.item).collect(),
         hubs: mg::merge_hubs(per, 24),
         pending: secs.pending || cw.pending || od.pending || pr.pending,
-        answered: secs.answered as u32, servers: srv.len() as u32,
+        answered: secs.answered as u32, servers: srv.len() as u32, epoch: ep,
     };
     if p.slots.epoch() != ep || !p.images.commit(img) { return Err("stale".into()); }
     Ok(view)
@@ -800,7 +808,7 @@ pub async fn person(p: &Arc<Plex>, id: &str) -> Result<browse::PersonView, Strin
 async fn discover_bio(p: &Plex, key: &str) -> Option<String> {
     if !browse::discover_person_key(key) { return None; }
     let url = url::Url::parse(&format!("https://discover.provider.plex.tv/library/people/{key}")).ok()?;
-    let r = p.egress.send(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::Account, HARD).await.ok()?;
+    let r = p.egress.send(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::Discover, HARD).await.ok()?;
     if !(200..300).contains(&r.status) { return None; }
     let v: Value = serde_json::from_slice(&r.body).ok()?;
     let mc = v.get("MediaContainer").unwrap_or(&v);

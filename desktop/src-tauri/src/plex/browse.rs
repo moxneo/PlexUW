@@ -323,6 +323,8 @@ pub struct Item {
     /// Audio and subtitle labels from this copy's MediaPart. Display text only:
     /// no stream id, key, decision, or URI.
     pub tracks: Vec<AvTrack>,
+    /// 24-hex Discover id (`plex://movie|show/<id>`), or empty. Not a URL and not a PMS key.
+    pub watch_key: String,
     #[serde(skip)]
     pub server_hint: String,
 }
@@ -378,7 +380,7 @@ pub fn item(v: &Value, mid: &str, img: &Images) -> Option<Item> {
         "movie" | "show" | "collection" => reg("thumb"),
         _ => None,
     };
-    Some(Item { versions: vec![], versions_pending: false, default_version: None, sources: vec![], tracks: vec![], server_hint: String::new(),
+    Some(Item { versions: vec![], versions_pending: false, default_version: None, sources: vec![], tracks: vec![], watch_key: watch_key_of(v), server_hint: String::new(),
         id, kind,
         title: s(v, "title", 200),
         parent_title: s(v, "parentTitle", 200),
@@ -511,6 +513,26 @@ pub fn letters(mc: &Value) -> Vec<Letter> {
 
 pub fn hub_list(mc: &Value, mid: &str, img: &Images) -> Vec<Hub> { hubs(mc, mid, img) }
 pub fn item_list(mc: &Value, mid: &str, img: &Images) -> Vec<Item> { items(mc, mid, img) }
+
+/// Discover watchlist id for a library row: movie/show plex guid, else a show's grandparent guid.
+pub fn watch_key_of(raw: &Value) -> String {
+    let kind = raw.get("type").and_then(Value::as_str).unwrap_or("");
+    if let Some(k) = plex_guid_hex(super::merge::queryable_guid_of(raw).as_deref().unwrap_or(""), kind) { return k; }
+    if kind == "episode" || kind == "season" {
+        if let Some(g) = raw.get("grandparentGuid").and_then(Value::as_str) {
+            if let Some(k) = plex_guid_hex(g, "show") { return k; }
+        }
+    }
+    String::new()
+}
+
+fn plex_guid_hex(g: &str, kind: &str) -> Option<String> {
+    let rest = g.strip_prefix("plex://")?;
+    let (k, id) = rest.split_once('/')?;
+    if k != "movie" && k != "show" { return None; }
+    if matches!(kind, "movie" | "show") && k != kind { return None; }
+    (id.len() == 24 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))).then(|| id.to_string())
+}
 
 /// Plex library type for `/library/all?type=`. 0 means "don't send type".
 pub fn plex_type(kind: &str) -> u8 {

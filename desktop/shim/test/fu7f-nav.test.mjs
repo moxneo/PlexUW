@@ -61,7 +61,8 @@ test('fu7f nav input: Alt+Left / Alt+Right, mouse buttons 4 and 5', () => {
 
 // Tiny DOM for pageSwap.
 function node(tag) { return { tagName: tag, children: [], parentNode: null, style: {}, attrs: {}, className: '', textContent_: '',
-  classList: { s: new Set(), add(c) { this.s.add(c); }, contains(c) { return this.s.has(c); } },
+  classList: { s: new Set(), add(c) { this.s.add(c); }, remove(c) { this.s.delete(c); }, contains(c) { return this.s.has(c); } },
+  insertBefore(c, ref) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; const i = this.children.indexOf(ref); if (i < 0) this.children.push(c); else this.children.splice(i, 0, c); return c; },
   setAttribute(k, v) { this.attrs[k] = v; },
   get firstChild() { return this.children[0] || null; },
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; },
@@ -114,10 +115,90 @@ test('page swap keeps the fanart on the viewport box, not the content column', (
   assert.match(css, /\.pxghostclip\{[^}]*overflow:hidden/);
 });
 
+test('page swap holds the same poster node and parks it after the fade', async () => {
+  const doc = { body: node('body'), createElement: node };
+  const view = node('div'); view.hidden = false;
+  const sc = { scrollTop: 80, getBoundingClientRect: () => ({ top: 48, left: 240, width: 1000, height: 700 }) };
+  const img = node('img'); img.className = 'pxfade in';
+  const card = node('a'); card.className = 'pxcard'; card.appendChild(img);
+  const bd = node('div'); bd.className = 'pxbackdrop'; bd.classList.add('pxbackdrop');
+  view.appendChild(bd); view.appendChild(card);
+  let retired = null;
+  const sw = pageSwap({ doc, scroller: sc, view, fadeMs: 1, onRetire: (info, box) => { retired = { info, box }; } });
+  const token = { n: 1 };
+  sw.begin();
+  sw.tag({ id: 'home', token, at: 5, scroll: 80, json: null });
+  assert.equal(view.children.length, 0, 'live view is clear so the next page can paint under the hold');
+  const g = doc.body.children[0];
+  const clip = g.children.find(c => c.className === 'pxghostclip');
+  const inner = clip.children.find(c => c.className === 'pxghosti');
+  assert.equal(inner.children[0], card, 'shelf card is the original node, not a clone');
+  assert.equal(card.children[0], img, 'poster img stayed the painted element');
+  assert.equal(g.children.find(c => c.classList.contains('pxbackdrop')), bd, 'fanart node is held too');
+  sw.end();
+  const early = sw.claim('home', token);
+  assert.equal(early.box.children[0], bd);
+  assert.equal(early.box.children[1], card);
+  assert.equal(bd.style.position, '', 'parked fanart drops the ghost viewport lock');
+  assert.equal(doc.body.children.length, 0, 'claim removes the hold immediately');
+  await new Promise(r => setTimeout(r, 60));
+  assert.equal(retired, null, 'a claimed hold is not retired twice');
+});
+
+test('page swap retire delivers the same nodes when the fade finishes', async () => {
+  const doc = { body: node('body'), createElement: node };
+  const view = node('div'); view.hidden = false;
+  const sc = { scrollTop: 0, getBoundingClientRect: () => ({ top: 0, left: 0, width: 800, height: 600 }) };
+  const img = node('img');
+  const card = node('a'); card.appendChild(img); view.appendChild(card);
+  let retired = null;
+  const sw = pageSwap({ doc, scroller: sc, view, fadeMs: 1, onRetire: (info, box) => { retired = { info, box }; } });
+  const token = {};
+  sw.begin(); sw.tag({ id: 'sec/abc', token, at: 1, scroll: 0, json: null });
+  sw.end();
+  await new Promise(r => setTimeout(r, 60));
+  assert.equal(retired.info.id, 'sec/abc');
+  assert.equal(retired.info.token, token);
+  assert.equal(retired.box.children[0], card);
+  assert.equal(retired.box.children[0].children[0], img);
+  assert.equal(sw.active, false);
+});
+
+test('page swap bakes a painted poster behind the img and drops the fade class before the move', () => {
+  const doc = { body: node('body'), createElement(tag) {
+    const n = node(tag);
+    n.getContext = () => ({ drawImage(im) { n.drew = im; } });
+    return n;
+  } };
+  const view = node('div'); view.hidden = false;
+  view.querySelectorAll = () => [img];
+  const sc = { scrollTop: 0, getBoundingClientRect: () => ({ top: 0, left: 0, width: 800, height: 600 }) };
+  const img = node('img'); img.classList.add('pxfade'); img.classList.add('in'); img.naturalWidth = 20; img.naturalHeight = 30; img.dataset = {};
+  const poster = node('div'); poster.className = 'poster'; poster.appendChild(img);
+  const card = node('a'); card.className = 'pxcard'; card.appendChild(poster); view.appendChild(card);
+  const sw = pageSwap({ doc, scroller: sc, view, fadeMs: 1 });
+  sw.begin();
+  assert.equal(poster.children[0].className, 'pxbake', 'decoded frame sits under the img');
+  assert.equal(poster.children[0].drew, img);
+  assert.equal(poster.children[1], img, 'the painted img stays in front');
+  assert.equal(img.classList.contains('pxfade'), false, 'the opacity:0 rule can no longer restart');
+  assert.equal(img.style.opacity, '1');
+  assert.equal(img.style.transition, 'none');
+  assert.equal(img.loading, 'eager');
+  assert.equal(img.dataset.baked, '1');
+  const g = doc.body.children[0];
+  assert.equal(g.textContent, '', 'canvas frame is not text');
+  assert.ok(sw.active);
+});
+
 test('fu7f wiring: no raw loading text, back control, fade-in posters, show-page popover, dimmed backdrop', () => {
   assert.doesNotMatch(src, /'Loading…'|'Loading libraries…'/, 'no visible loading strings left');
   assert.match(src, /function loading\(target\) \{[^\n]*aria-label', 'Loading'[^\n]*pxsk/);
   assert.match(src, /pm\.close\(false\); sm\.save\(\); const back = sm\.enter\(\);[^\n]*swap\.begin\(\)/);
+  assert.doesNotMatch(src, /holdClone|view\.cloneNode\(true\)/);
+  assert.match(src, /holdPainted\(view\)/);
+  assert.match(src, /img\.classList\.remove\('pxfade'\)/);
+  assert.match(css, /canvas\.pxbake\{position:absolute;inset:0/);
   assert.match(src, /swap\.end\(\);\n\s*if \(back != null\) restoreScroll\(back, g\);/);
   assert.match(src, /if \(d === 'back'\) \{ if \(sm\.index > 0\) history\.back\(\)/);
   assert.match(src, /else if \(sm\.canForward\) history\.forward\(\)/);

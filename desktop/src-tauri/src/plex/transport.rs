@@ -5,7 +5,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 use url::Url;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Method { Get, Post }
+pub enum Method { Get, Post, Put }
 
 pub struct Req {
     pub method: Method,
@@ -83,6 +83,7 @@ impl Transport for Reqwest {
             let mut b = match r.method {
                 Method::Get => self.0.get(r.url),
                 Method::Post => self.0.post(r.url),
+                Method::Put => self.0.put(r.url),
             }
             .timeout(r.timeout);
             for (k, v) in r.headers { b = b.header(k, v); }

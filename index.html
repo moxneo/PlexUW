@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PlexUW — prototype v4.1</title><link rel="icon" href="favicon/favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon/favicon.ico" sizes="16x16 32x32 48x48"><link rel="apple-touch-icon" href="favicon/apple-touch-icon.png"><link rel="manifest" href="favicon/site.webmanifest"><link rel="stylesheet" href="styles.css?v=13"></head>
+<title>PlexUW — prototype v4.1</title><link rel="icon" href="favicon/favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon/favicon.ico" sizes="16x16 32x32 48x48"><link rel="apple-touch-icon" href="favicon/apple-touch-icon.png"><link rel="manifest" href="favicon/site.webmanifest"><link rel="stylesheet" href="styles.css?v=14"></head>
 <body>
 <div id="app">
  <section id="home" class="screen">
@@ -65,10 +65,10 @@
    <aside id="pDetails" class="panel left" aria-label="Details"><div class="art"></div><div class="glass"></div><div class="pc" id="detailsBody"></div></aside>
    <aside id="pUpnext" class="panel right" aria-label="Up Next"><div class="art"></div><div class="glass"></div><div class="pc" id="upList"></div></aside>
    <div id="topctl" class="bar">
-    <div class="tl"><button id="bD" class="tb" title="Info (I)"><svg class="ic"><use href="assets/icons.svg#more"/></svg></button><button id="bU" class="tb" title="Info panel (I)"><svg class="ic"><use href="assets/icons.svg#sidebar"/></svg></button><i class="vsep"></i>
-     <button id="back" class="crumb" title="Back to library (Esc)"><svg class="ic"><use href="assets/icons.svg#folder"/></svg><span id="crumb">Movies</span></button></div>
+    <div class="tl"><button id="bD" class="tb" title="Info (I)" aria-label="Info"><svg class="ic solid" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/></svg></button><button id="bU" class="tb" title="Up Next (U)" aria-label="Up Next"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9 4.5v15"/></svg></button><i class="vsep"></i>
+     <button id="back" class="crumb" title="Back to library (Esc)"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span id="crumb">Movies</span></button></div>
     <div id="ptitle"></div>
-    <div class="tr"><span id="modeLabel" class="pill"></span><button class="tb" title="Minimize"><svg class="ic"><use href="assets/icons.svg#wmin"/></svg></button><button class="tb" title="Maximize"><svg class="ic"><use href="assets/icons.svg#wmax"/></svg></button><button id="bF" class="tb" title="Fullscreen (F)"><svg class="ic"><use href="assets/icons.svg#wfs"/></svg></button><button id="bX" class="tb" title="Close"><svg class="ic"><use href="assets/icons.svg#wclose"/></svg></button></div>
+    <div class="tr"><span id="modeLabel" class="pill"></span><button class="tb" title="Minimize" aria-label="Minimize"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button><button class="tb" title="Maximize" aria-label="Maximize"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button><button id="bF" class="tb" title="Fullscreen (F)" aria-label="Fullscreen"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9V5h4M19 9V5h-4M5 15v4h4M19 15v4h-4"/></svg></button><button id="bX" class="tb" title="Close" aria-label="Close"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></div>
    </div>
    <div id="toast"></div>
    <div id="stripL" class="strip l"></div><div id="stripR" class="strip r"></div>
@@ -79,25 +79,25 @@
    <div id="apCard" class="apcard" hidden></div>
    <div id="bar" class="bar">
     <div class="ctl">
-     <button id="rew" class="cb" title="Previous / back 10s (←)"><svg class="ic"><use href="assets/icons.svg#tprev"/></svg></button>
-     <button id="play" class="playbtn" title="Play/Pause (Space)"><svg class="ic"><use href="assets/icons.svg#tpause"/></svg></button>
-     <button id="fwd" class="cb" title="Next / forward 10s (→)"><svg class="ic"><use href="assets/icons.svg#tnext"/></svg></button>
+     <button id="rew" class="cb" title="Back 10s (←)" aria-label="Back 10 seconds"><svg class="ic solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6.3v11.4a.6.6 0 0 1-.9.5L8 12.5a.6.6 0 0 1 0-1L16.1 5.8a.6.6 0 0 1 .9.5z"/><rect x="6" y="6" width="2" height="12" rx=".8"/></svg></button>
+     <button id="play" class="playbtn" title="Play/Pause (Space)" aria-label="Play/Pause"><svg class="ic solid" id="playIc" viewBox="0 0 24 24" aria-hidden="true"></svg></button>
+     <button id="fwd" class="cb" title="Forward 10s (→)" aria-label="Forward 10 seconds"><svg class="ic solid" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6.3v11.4a.6.6 0 0 0 .9.5L16 12.5a.6.6 0 0 0 0-1L7.9 5.8a.6.6 0 0 0-.9.5z"/><rect x="16" y="6" width="2" height="12" rx=".8"/></svg></button>
      <span id="tcur" class="tm">00:00:00</span>
      <div id="seek"><div id="buf"></div><div id="prog"></div><div id="chaps"></div><div id="knob"></div>
-      <div id="thumb"><div id="thumbimg"></div><span id="thumbt">0:00</span></div></div>
+      <div id="thumb"><canvas id="thumbimg" width="320" height="180"></canvas><span id="thumbt">0:00</span></div></div>
      <span id="tdur" class="tm">--:--:--</span>
-     <div class="volume"><button class="cb" title="Mute"><svg class="ic"><use href="assets/icons.svg#spk"/></svg></button><div class="wedge"><svg viewBox="0 0 89 27.36" preserveAspectRatio="none"><defs><linearGradient id="vg" x1="0" x2="1"><stop offset="0" stop-color="var(--accent-dim)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient><clipPath id="vc"><path d="M1.4 25.96L87.6 1.4V25.96z"/></clipPath></defs><path d="M0 27.36L89 0V27.36z" fill="#090909"/><rect clip-path="url(#vc)" x="0" y="0" width="60" height="27.36" fill="url(#vg)" id="vfill"/></svg></div></div>
-     <button id="bMic" class="cb" title="Voice assistant (V)"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
-     <button id="bAmb" class="cb" title="Ambient edge fill (A)"><svg class="ic"><use href="assets/icons.svg#wave"/></svg></button>
-     <button class="cb" title="Subtitles"><svg class="ic"><use href="assets/icons.svg#cc"/></svg></button>
-     <div class="gearwrap"><button id="bGear" class="cb" title="Settings: aspect (Z)"><svg class="ic"><use href="assets/icons.svg#gear"/></svg></button>
+     <div class="volume"><button id="bVol" class="cb" type="button" title="Mute" aria-label="Mute"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3l4.5-4v13L7 14.5H4zM15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/></svg></button><div class="wedge" id="volWedge" role="slider" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" tabindex="0"><svg viewBox="0 0 89 27.36" preserveAspectRatio="none"><defs><linearGradient id="vg" x1="0" x2="1"><stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="1" stop-color="#ffffff"/></linearGradient><clipPath id="vc"><path d="M1.4 25.96L87.6 1.4V25.96z"/></clipPath></defs><path d="M0 27.36L89 0V27.36z" fill="rgba(255,255,255,.18)"/><rect clip-path="url(#vc)" x="0" y="0" width="89" height="27.36" fill="url(#vg)" id="vfill"/></svg></div></div>
+     <button id="bMic" class="cb" title="Voice assistant (V)"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+     <button id="bAmb" class="cb" title="Ambient edge fill (A)"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"/></svg></button>
+     <button id="bCc" class="cb" type="button" title="Subtitles"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6.5 12.5h4M13 12.5h4.5M6.5 15h7"/></svg></button>
+     <div class="gearwrap"><button id="bGear" class="cb" title="Settings: aspect (Z)"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.5l1.6 2.2 2.6-.6.8 2.5 2.5.8-.6 2.6 2.2 1.6-2.2 1.6.6 2.6-2.5.8-.8 2.5-2.6-.6L12 20.5l-1.6-2.2-2.6.6-.8-2.5-2.5-.8.6-2.6L2.9 12l2.2-1.6-.6-2.6 2.5-.8.8-2.5 2.6.6z"/></svg></button>
       <div id="gearMenu" class="menu" hidden>
        <div class="mh">Aspect (Z)</div><div id="aspectList"></div>
        <button id="bAspect" class="mi" hidden><span id="aspectTxt">Fit</span></button>
        <label id="biasWrap" class="mi bias">Smart-crop bias <input id="bias" type="range" min="-15" max="15" value="0"></label>
        <button id="bAmb2" class="mi">Ambient edge fill (A)</button>
        <button id="apGear" class="mi" data-ap>Autoplay next episode</button></div></div>
-     <button id="bU2" class="cb" title="Up next (U)"><svg class="ic"><use href="assets/icons.svg#plist"/></svg></button>
+     <button id="bU2" class="cb" title="Up next (U)"><svg class="ic stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg></button>
     </div>
    </div>
   </div>
@@ -112,5 +112,5 @@
  <div class="modal-box"><div class="askin"><svg class="ic"><use href="assets/icons.svg#search"/></svg><input id="askq" placeholder="Try “unwatched sci-fi from the 1990s”"></div>
   <div class="muted small">Filters (mock, client-side)</div><div id="chipbox" class="chips"></div>
   <div class="muted small">Enter to apply · Esc to close · <span id="askProv"></span></div></div></div>
-<script src="data.js?v=13"></script><script src="app.js?v=13"></script>
+<script src="data.js?v=14"></script><script src="app.js?v=14"></script>
 </body></html>

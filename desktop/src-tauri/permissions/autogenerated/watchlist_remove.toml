@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-watchlist-remove"
+description = "Enables the watchlist_remove command without any pre-configured scope."
+commands.allow = ["watchlist_remove"]
+
+[[permission]]
+identifier = "deny-watchlist-remove"
+description = "Denies the watchlist_remove command without any pre-configured scope."
+commands.deny = ["watchlist_remove"]

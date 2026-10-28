@@ -2,6 +2,7 @@
 //! Every value is fake. No network.
 use super::transport::{Fut, Method, Req, Resp, Transport};
 use secrecy::ExposeSecret;
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
@@ -27,8 +28,12 @@ pub struct FixtureTransport {
     pub guid_slim: bool,
     /// `/library/all` returns 500 so the version fan-out records a miss.
     pub guid_fail: bool,
+    /// Delay the connected server's `/library/all` (guid scans outlive the 1.5s soft deadline).
+    pub guid_delay_ms: u64,
     pub polls: AtomicU32,
     pub log: Mutex<Vec<String>>,
+    /// Discover Universal Watchlist rating keys (24 lowercase hex). Test harness only.
+    pub watch: Mutex<Vec<String>>,
 }
 
 impl FixtureTransport {
@@ -55,6 +60,36 @@ fn profile_note(headers: &[(&str, String)]) -> &'static str {
 }
 
 fn json(status: u16, s: String) -> Result<Resp, String> { Ok(Resp { status, body: s.into_bytes(), content_type: Some("application/json".into()), content_range: None, location: None }) }
+
+fn watch_key_from_query(q: Option<&str>) -> Result<String, ()> {
+    if super::egress::watchlist_action_query_ok(q).is_err() { return Err(()); }
+    let key = url::form_urlencoded::parse(q.unwrap_or("").as_bytes()).find(|(k, _)| k == "ratingKey").map(|(_, v)| v.into_owned()).ok_or(())?;
+    super::egress::watch_rating_key_ok(&key).then_some(key).ok_or(())
+}
+
+fn discover_watchlist_body(keys: &[String], q: Option<&str>) -> String {
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.unwrap_or("").as_bytes()).into_owned().collect();
+    let start = pairs.iter().find(|(k, _)| k == "X-Plex-Container-Start").and_then(|(_, v)| v.parse::<usize>().ok()).unwrap_or(0);
+    let size = pairs.iter().find(|(k, _)| k == "X-Plex-Container-Size").and_then(|(_, v)| v.parse::<usize>().ok()).unwrap_or(50).clamp(1, 100);
+    let page: Vec<Value> = keys.iter().skip(start).take(size).filter_map(|k| discover_watch_meta(k)).collect();
+    json!({"MediaContainer": {"totalSize": keys.len(), "size": page.len(), "Metadata": page}}).to_string()
+}
+
+fn discover_watch_meta(key: &str) -> Option<Value> {
+    if !super::egress::watch_rating_key_ok(key) { return None; }
+    for i in 0..lib::N_MOVIES {
+        if format!("5d77{:020x}", i) == key {
+            let title = lib::MOVIES[i % lib::MOVIES.len()];
+            return Some(json!({"ratingKey": key, "type": "movie", "title": title, "year": 1994 + (i * 7 % 30), "guid": format!("plex://movie/{key}"), "summary": format!("A fictional fixture film about {}.", title)}));
+        }
+    }
+    for i in 0..lib::SHOWS.len() {
+        if format!("5d78{:020x}", i) == key {
+            return Some(json!({"ratingKey": key, "type": "show", "title": lib::SHOWS[i], "year": 2012 + i, "guid": format!("plex://show/{key}"), "summary": format!("A fictional fixture series: {}.", lib::SHOWS[i])}));
+        }
+    }
+    Some(json!({"ratingKey": key, "type": "movie", "title": "Streaming only", "year": 2020, "guid": format!("plex://movie/{key}"), "summary": "On the Universal Watchlist and not in the fixture library.", "thumb": "https://metadata-static.plex.tv/people/fixture.jpg"}))
+}
 
 /// Discover biography fixture. PMS summary for tag_key(0) is empty, so that one key
 /// is the only person whose bio must come from this GET. Any other key is a marker
@@ -156,11 +191,30 @@ impl Transport for FixtureTransport {
                 }
                 (Method::Get, "discover.provider.plex.tv", p) => {
                     if tok.as_deref() != Some("acct") { return json(401, "{}".into()); }
-                    if r.url.query().is_some() || r.url.fragment().is_some() { return json(400, "{}".into()); }
-                    match discover_person_body(p) {
-                        Some(body) => json(200, body),
-                        None => json(404, "{}".into()),
+                    if r.url.fragment().is_some() || super::egress::query_has_token(r.url.query()) { return json(400, "{}".into()); }
+                    if let Some(body) = discover_person_body(p) {
+                        if r.url.query().is_some() { return json(400, "{}".into()); }
+                        return json(200, body);
                     }
+                    if p == super::egress::WATCHLIST_LIST_PATH {
+                        if !super::egress::watchlist_list_query_ok(r.url.query()) { return json(400, "{}".into()); }
+                        return json(200, discover_watchlist_body(&self.watch.lock().unwrap(), r.url.query()));
+                    }
+                    json(404, "{}".into())
+                }
+                (Method::Put | Method::Post, "discover.provider.plex.tv", p)
+                    if p == super::egress::WATCHLIST_ADD_PATH || p == super::egress::WATCHLIST_REMOVE_PATH =>
+                {
+                    if tok.as_deref() != Some("acct") { return json(401, "{}".into()); }
+                    if r.url.fragment().is_some() || super::egress::query_has_token(r.url.query()) { return json(400, "{}".into()); }
+                    let Ok(key) = watch_key_from_query(r.url.query()) else { return json(400, "{}".into()); };
+                    let mut wl = self.watch.lock().unwrap();
+                    if p == super::egress::WATCHLIST_ADD_PATH {
+                        if !wl.iter().any(|k| k == &key) { wl.push(key); }
+                    } else {
+                        wl.retain(|k| k != &key);
+                    }
+                    json(200, r#"{"MediaContainer":{"size":0}}"#.into())
                 }
                 (Method::Get, "plex.tv", "/api/v2/user") => {
                     if tok.as_deref() != Some("acct") { return json(401, "{}".into()); }
@@ -212,6 +266,9 @@ impl Transport for FixtureTransport {
                 (Method::Get, _, p) if super::egress::server_path(p, r.url.query()) || p == "/photo/:/transcode" => {
                     let q = r.url.query().unwrap_or("");
                     if self.slow_ms > 0 && host.starts_with("192-0-2-4.") { tokio::time::sleep(std::time::Duration::from_millis(self.slow_ms)).await; }
+                    if p == "/library/all" && self.guid_delay_ms > 0 && !host.starts_with("192-0-2-4.") && !host.starts_with("198-51-100-44.") {
+                        tokio::time::sleep(std::time::Duration::from_millis(self.guid_delay_ms)).await;
+                    }
                     if self.blackbox_401 && host.starts_with("198-51-100-44.") { return json(401, "{}".into()); }
                     let res = match tok.as_deref() {
                         Some("srv1") if !host.starts_with("192-0-2-4.") && !host.starts_with("198-51-100-44.") => lib::serve(p, q),

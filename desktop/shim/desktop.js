@@ -292,7 +292,42 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   // come back through opaque_get. A failure clears the video element.
   function b64ToU8(s){const bin=atob(s||'');const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
   let hlsPlayer=null, plexLive=false;
-  function clearVid(){if(hlsPlayer){try{hlsPlayer.destroy()}catch(e){}hlsPlayer=null}const v=document.getElementById('vid');if(!v)return;try{v.pause()}catch(e){}v.onerror=null;if(v.getAttribute('src')){v.removeAttribute('src');v.load()}}
+  let scrubVid=null,scrubHls=null,scrubAbs='',scrubTimer=0,scrubGen=0;
+  function pushVol(v){
+    if(!v||typeof window.__pxReadVol!=='function')return;
+    const n=window.__pxReadVol();
+    if(typeof n!=='number'||!isFinite(n))return;
+    v.muted=n<=0;v.volume=Math.max(0,Math.min(1,n));
+  }
+  function killScrub(){
+    clearTimeout(scrubTimer);
+    if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
+    if(scrubVid){try{scrubVid.pause();scrubVid.removeAttribute('src');scrubVid.load();scrubVid.remove()}catch(e){}scrubVid=null}
+    scrubAbs='';window.__pxPlayAbs='';window.__pxPlayKind='';
+  }
+  function scrubDraw(sec,canvas){
+    const abs=window.__pxPlayAbs,kind=window.__pxPlayKind;
+    if(!abs||!canvas||typeof sec!=='number'||!isFinite(sec))return;
+    if(!scrubVid||scrubAbs!==abs){
+      if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
+      if(scrubVid){try{scrubVid.remove()}catch(e){}}
+      const el=document.createElement('video');
+      el.muted=true;el.defaultMuted=true;el.volume=0;el.playsInline=true;el.setAttribute('playsinline','');el.preload='auto';el.setAttribute('aria-hidden','true');
+      el.style.cssText='position:fixed;left:-9999px;width:320px;height:180px;opacity:0;pointer-events:none';
+      document.body.appendChild(el);scrubVid=el;scrubAbs=abs;
+      if(kind==='hls'&&Hls.isSupported()){
+        scrubHls=new Hls({enableWorker:false,loader:PlexLoader,maxBufferLength:2,maxMaxBufferLength:4,capLevelToPlayerSize:true});
+        scrubHls.loadSource(abs);scrubHls.attachMedia(el);
+      }else if(kind!=='hls')el.src=abs;
+    }
+    const v=scrubVid,gen=++scrubGen;
+    const draw=()=>{if(gen!==scrubGen||!v.videoWidth)return;try{const x=canvas.getContext('2d');if(x)x.drawImage(v,0,0,canvas.width,canvas.height)}catch(e){}};
+    const go=()=>{if(gen!==scrubGen)return;const on=()=>{v.removeEventListener('seeked',on);draw()};v.addEventListener('seeked',on);try{if(scrubHls&&scrubHls.startLoad)scrubHls.startLoad(Math.max(0,sec));v.currentTime=Math.max(0,sec)}catch(e){}};
+    if(v.readyState>=1)go();else v.addEventListener('loadedmetadata',()=>go(),{once:true});
+  }
+  window.__pxScrubTo=(sec,canvas)=>{clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>scrubDraw(sec,canvas),90)};
+  window.__pxScrubStop=()=>{clearTimeout(scrubTimer);if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}};
+  function clearVid(){killScrub();if(hlsPlayer){try{hlsPlayer.destroy()}catch(e){}hlsPlayer=null}const v=document.getElementById('vid');if(!v)return;try{v.pause()}catch(e){}v.onerror=null;if(v.getAttribute('src')){v.removeAttribute('src');v.load()}}
   function showPlayErr(msg){const t=document.getElementById('toast');if(t){t.textContent=msg;t.classList.add('show','status')}const d=document.getElementById('tdur');if(d&&d.textContent==='00:00:10')d.textContent='--:--:--'}
   class PlexLoader extends Hls.DefaultConfig.loader {
     load(context, config, callbacks){
@@ -321,23 +356,27 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     if(out&&out.durationMs){window.__pxPlayDur=out.durationMs;const td=document.getElementById('tdur');if(td&&typeof hms==='function')td.textContent=hms(out.durationMs/1000)}
     const v=document.getElementById('vid');if(!v||!out||!out.url){showPlayErr('Could not start playback');return}
     const abs=plexOrigin()+out.url;
+    window.__pxPlayAbs=abs;window.__pxPlayKind=out.kind||'';
     v.onerror=onVidErr;
+    v.addEventListener('ended',function(){if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()},{once:true});
+    v.addEventListener('playing',function(){pushVol(v)},{once:true});
+    pushVol(v);
     if(out.kind==='hls'){
       if(Hls.isSupported()){
         hlsPlayer=new Hls({enableWorker:false,loader:PlexLoader});
         hlsPlayer.on(Hls.Events.ERROR,function(_ev,data){if(!data||!data.fatal)return;const code=data.response&&data.response.code;console.error('plexuw play: step=hls fatal type='+(data.type||'')+' details='+(data.details||'')+' code='+(code==null?'':code));showPlayErr('Could not start playback '+(code?'('+code+')':(data.details?'('+data.details+')':'')));clearVid()});
         hlsPlayer.loadSource(abs);hlsPlayer.attachMedia(v);
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED,function(){v.play().catch(function(){})});
+        hlsPlayer.on(Hls.Events.MANIFEST_PARSED,function(){pushVol(v);v.play().catch(function(){})});
       }else{console.error('plexuw play: step=mse Hls.isSupported=false');showPlayErr('Could not start playback (mse)');clearVid()}
     }else{
       const off=(ctx.fromStart?0:(ctx.viewOffsetMs||0))/1000;
-      if(off>1)v.addEventListener('loadedmetadata',function(){try{v.currentTime=off}catch(e){}},{once:true});
+      v.addEventListener('loadedmetadata',function(){pushVol(v);if(off>1){try{v.currentTime=off}catch(e){}}},{once:true});
       v.src=abs;v.play().catch(function(){});
     }
   }
   addEventListener('hashchange',function(){
     if(String(location.hash||'').indexOf('#player/plex')===0)beginPlexPlay();
-    else if(plexLive){plexLive=false;clearVid();invoke('playback_stop').catch(function(){})}
+    else if(plexLive){plexLive=false;clearVid();invoke('playback_stop').catch(function(){});if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()}
   });
   if(String(location.hash||'').indexOf('#player/plex')===0)beginPlexPlay();
   // Fixture-build screenshot driver. fu7g (Sentinel INFO-1): the whole driver, fu7fBadge and the

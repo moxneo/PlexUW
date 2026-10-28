@@ -27,9 +27,63 @@ pub fn discover_person_path(p: &str) -> bool {
     k.len() == 24 && !k.contains('/') && k.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Universal Watchlist on Discover. Movies / TV are filtered in the UI, not by extra paths.
+/// Documented shape (PlexKodiConnect #2178, python-plexapi discover move, plex-api-spec #105):
+/// list `GET /library/sections/watchlist/all`; add/remove `PUT|POST /actions/{add,remove}ToWatchlist?ratingKey=`.
+/// Public curls put `X-Plex-Token` in the query. We do not: the token stays in the header.
+pub const WATCHLIST_LIST_PATH: &str = "/library/sections/watchlist/all";
+pub const WATCHLIST_ADD_PATH: &str = "/actions/addToWatchlist";
+pub const WATCHLIST_REMOVE_PATH: &str = "/actions/removeFromWatchlist";
+
+/// Discover metadata id (the hex in `plex://movie|show/<id>`). Not a PMS rating key and not a URL.
+pub fn watch_rating_key_ok(s: &str) -> bool {
+    s.len() == 24 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn token_query_key(k: &str) -> bool {
+    matches!(k.to_ascii_lowercase().as_str(), "x-plex-token" | "token" | "accesstoken" | "authtoken")
+}
+
+pub fn query_has_token(q: Option<&str>) -> bool {
+    url::form_urlencoded::parse(q.unwrap_or("").as_bytes()).any(|(k, _)| token_query_key(&k))
+}
+
+fn paging_int(v: &str, lo: u32, hi: u32) -> bool {
+    !v.is_empty() && v.len() <= 6 && v.bytes().all(|b| b.is_ascii_digit())
+        && v.parse::<u32>().ok().is_some_and(|n| (lo..=hi).contains(&n))
+}
+
+/// Empty query, or only the paging pair. No include* flags, no token keys.
+pub fn watchlist_list_query_ok(q: Option<&str>) -> bool {
+    let Some(q) = q.filter(|s| !s.is_empty()) else { return true };
+    if query_has_token(Some(q)) { return false; }
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
+    if pairs.is_empty() || pairs.len() > 2 { return false; }
+    let mut start = false;
+    let mut size = false;
+    for (k, v) in &pairs {
+        match k.as_str() {
+            "X-Plex-Container-Start" if !start && paging_int(v, 0, 100_000) => start = true,
+            "X-Plex-Container-Size" if !size && paging_int(v, 1, 100) => size = true,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Exactly one `ratingKey` of 24 lowercase hex. A token in the query is Deny::Path.
+pub fn watchlist_action_query_ok(q: Option<&str>) -> Result<(), Deny> {
+    let Some(q) = q.filter(|s| !s.is_empty()) else { return Err(Deny::Param); };
+    if query_has_token(Some(q)) { return Err(Deny::Path); }
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
+    if pairs.len() != 1 || pairs[0].0 != "ratingKey" { return Err(Deny::Param); }
+    if !watch_rating_key_ok(&pairs[0].1) { return Err(Deny::Param); }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq)]
 /// `PublicImage`: token-less fetch of a CDN cast photo or a plex.tv account avatar.
-pub enum Cred { None, Account, Server(String), PublicImage }
+pub enum Cred { None, Account, Server(String), PublicImage, Discover }
 
 /// CDN cast photos. Account avatars are the other PublicImage host (`plex.tv`).
 pub const PUBLIC_IMAGE_HOST: &str = "metadata-static.plex.tv";
@@ -158,7 +212,7 @@ pub struct Bindings {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Deny { Scheme, UserInfo, Host, Path }
+pub enum Deny { Scheme, UserInfo, Host, Path, Method, Param }
 
 pub fn host_port(u: &Url) -> Option<String> {
     Some(format!("{}:{}", u.host_str()?.to_ascii_lowercase(), u.port_or_known_default()?))
@@ -235,6 +289,12 @@ pub fn image_path_ok(u: &str) -> bool {
 }
 
 pub fn check(u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
+    check_call(Method::Get, u, cred, b)
+}
+
+/// Method-aware allowlist. `check` is the GET entry. Discover Watchlist is paired
+/// host × path × method under `Cred::Discover` only. Redirects are still refused by `send`.
+pub fn check_call(method: Method, u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
     if u.scheme() != "https" { return Err(Deny::Scheme); }
     if !u.username().is_empty() || u.password().is_some() { return Err(Deny::UserInfo); }
     let hp = host_port(u).ok_or(Deny::Host)?;
@@ -242,14 +302,35 @@ pub fn check(u: &Url, cred: &Cred, b: &Bindings) -> Result<(), Deny> {
     match cred {
         Cred::Account => {
             if is_discover_host(u) {
+                // People biography only. Watchlist is not an Account-cred path.
                 // Header-only. A query or fragment would put the account token on the URL.
                 if u.query().is_some() || u.fragment().is_some() || !discover_person_path(p) { return Err(Deny::Path); }
+                if method != Method::Get { return Err(Deny::Method); }
             } else {
                 if !is_account_host(u) { return Err(Deny::Host); }
                 if !account_path(p) { return Err(Deny::Path); }
                 // /api/v2/user is the paired account card only: no query, no fragment, no home-user.
                 if p == "/api/v2/user" && (u.query().is_some() || u.fragment().is_some()) { return Err(Deny::Path); }
             }
+        }
+        Cred::Discover => {
+            // Account token, header-only, this host only. Not ACCOUNT_HOSTS and not a PMS token.
+            if !is_discover_host(u) { return Err(Deny::Host); }
+            if u.fragment().is_some() || query_has_token(u.query()) { return Err(Deny::Path); }
+            if p.split('/').any(|s| s == "." || s == "..") { return Err(Deny::Path); }
+            if discover_person_path(p) {
+                if u.query().is_some() { return Err(Deny::Path); }
+                return if method == Method::Get { Ok(()) } else { Err(Deny::Method) };
+            }
+            if p == WATCHLIST_LIST_PATH {
+                if !watchlist_list_query_ok(u.query()) { return Err(Deny::Path); }
+                return if method == Method::Get { Ok(()) } else { Err(Deny::Method) };
+            }
+            if p == WATCHLIST_ADD_PATH || p == WATCHLIST_REMOVE_PATH {
+                if method != Method::Put && method != Method::Post { return Err(Deny::Method); }
+                return watchlist_action_query_ok(u.query());
+            }
+            return Err(Deny::Path);
         }
         Cred::Server(m) => {
             if !b.servers.get(m).map(|s| s.contains(&hp)).unwrap_or(false) { return Err(Deny::Host); }
@@ -321,10 +402,10 @@ impl Egress {
         self.send_capped(method, url, cred, timeout, Self::MAX_API_BODY).await
     }
     pub async fn send_capped(&self, method: Method, url: Url, cred: Cred, timeout: Duration, max_body: usize) -> Result<Resp, EgressError> {
-        check(&url, &cred, &self.bindings.lock().unwrap()).map_err(EgressError::Denied)?;
+        check_call(method, &url, &cred, &self.bindings.lock().unwrap()).map_err(EgressError::Denied)?;
         let token = match &cred {
             Cred::None | Cred::PublicImage => None,
-            Cred::Account => Some(self.store.get(&account_key(&self.client_id)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
+            Cred::Account | Cred::Discover => Some(self.store.get(&account_key(&self.client_id)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
             Cred::Server(m) => Some(self.store.get(&server_key(&self.client_id, m)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
         };
         let r = self.t.send(Req { method, url, headers: self.plex_headers(), token, timeout, max_body }).await.map_err(EgressError::Net)?;
@@ -360,10 +441,10 @@ impl Egress {
     /// Playback fetch: same credential rules, but `Accept` is replaced and an optional
     /// Range is forwarded. Used for decision JSON, HLS playlists/segments and part bytes.
     pub async fn send_playback(&self, url: Url, cred: Cred, timeout: Duration, max_body: usize, accept: &str, range: Option<&str>) -> Result<Resp, EgressError> {
-        check(&url, &cred, &self.bindings.lock().unwrap()).map_err(EgressError::Denied)?;
+        check_call(Method::Get, &url, &cred, &self.bindings.lock().unwrap()).map_err(EgressError::Denied)?;
         let token = match &cred {
             Cred::None | Cred::PublicImage => None,
-            Cred::Account => Some(self.store.get(&account_key(&self.client_id)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
+            Cred::Account | Cred::Discover => Some(self.store.get(&account_key(&self.client_id)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
             Cred::Server(m) => Some(self.store.get(&server_key(&self.client_id, m)).map_err(EgressError::Store)?.ok_or(EgressError::NoToken)?),
         };
         let mut headers = self.plex_headers();
@@ -515,5 +596,88 @@ mod t {
         assert_eq!(check(&u(asset), &Cred::Account, &b), Err(Deny::Host));
         assert_eq!(check(&u("https://plex.tv/avatars/F18052/31/3"), &Cred::Account, &b), Err(Deny::Path));
         assert_eq!(check(&u("https://assets.plex.tv/people/a.jpg"), &Cred::PublicImage, &b), Err(Deny::Path));
+    }
+
+    /// Sentinel D1–D15. People GET stays. Watchlist is Cred::Discover only.
+    #[test]
+    fn watchlist_deny_matrix_d1_through_d15() {
+        let d = Cred::Discover;
+        let person = "https://discover.provider.plex.tv/library/people/5d77680000000000000000a0";
+        let list = "https://discover.provider.plex.tv/library/sections/watchlist/all";
+        let key = "5d77680000000000000000a0";
+        let add = format!("https://discover.provider.plex.tv/actions/addToWatchlist?ratingKey={key}");
+        let rm = format!("https://discover.provider.plex.tv/actions/removeFromWatchlist?ratingKey={key}");
+        // D1 people GET allow (Account standing + Discover).
+        assert_eq!(check(&u(person), &Cred::Account, &b()), Ok(()));
+        assert_eq!(check_call(Method::Get, &u(person), &d, &b()), Ok(()));
+        // D2 people path shape.
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/5D77680000000000000000A0"), &d, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/5d77680000000000000000"), &d, &b()), Err(Deny::Path));
+        assert_eq!(check(&u("https://discover.provider.plex.tv/library/people/5d77680000000000000000a0/media"), &d, &b()), Err(Deny::Path));
+        assert_eq!(check(&u(&format!("{person}?x=1")), &d, &b()), Err(Deny::Path));
+        // D3 list GET, including the paging allowlist. No query is also allow.
+        assert_eq!(check_call(Method::Get, &u(list), &d, &b()), Ok(()));
+        assert_eq!(check_call(Method::Get, &u(&format!("{list}?X-Plex-Container-Start=0&X-Plex-Container-Size=50")), &d, &b()), Ok(()));
+        assert_eq!(check_call(Method::Put, &u(&add), &d, &b()), Ok(()));
+        assert_eq!(check_call(Method::Post, &u(&rm), &d, &b()), Ok(()));
+        // D4 query token.
+        assert_eq!(check_call(Method::Get, &u(&format!("{list}?X-Plex-Token=sekrit")), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Put, &u(&format!("{add}&X-Plex-Token=sekrit")), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u(&format!("{list}?token=sekrit")), &d, &b()), Err(Deny::Path));
+        // D5 fragment.
+        assert_eq!(check_call(Method::Get, &u(&format!("{list}#frag")), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Put, &u(&format!("{add}#frag")), &d, &b()), Err(Deny::Path));
+        // D6 wrong method. DELETE is not a Method we can send; POST/PUT on the list are the wrong-method cases.
+        assert_eq!(check_call(Method::Post, &u(list), &d, &b()), Err(Deny::Method));
+        assert_eq!(check_call(Method::Put, &u(list), &d, &b()), Err(Deny::Method));
+        assert_eq!(check_call(Method::Get, &u(&add), &d, &b()), Err(Deny::Method));
+        assert_eq!(check_call(Method::Post, &u(person), &Cred::Account, &b()), Err(Deny::Method));
+        // D7 dot-segment. The URL parser normalises `..` away from the allowlisted path.
+        let trav = Url::parse("https://discover.provider.plex.tv/library/sections/watchlist/all/../../accounts").unwrap();
+        assert_ne!(trav.path(), WATCHLIST_LIST_PATH);
+        assert_eq!(check_call(Method::Get, &trav, &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u(&format!("{list}/extra")), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u("https://discover.provider.plex.tv/library/sections/watchlist/movies"), &d, &b()), Err(Deny::Path));
+        // D8 metadata browse denied.
+        assert_eq!(check_call(Method::Get, &u("https://discover.provider.plex.tv/library/metadata/1"), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u(&format!("https://discover.provider.plex.tv/library/metadata/{key}")), &d, &b()), Err(Deny::Path));
+        // D9 / D10 wrong discover hosts.
+        assert_eq!(check_call(Method::Get, &u("https://metadata.provider.plex.tv/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u("https://discover.plex.tv/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        // D11 non-443.
+        assert_eq!(check_call(Method::Get, &u("https://discover.provider.plex.tv:8443/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        // D12 evil ratingKey.
+        for bad in ["", "../x", "http://evil.example/a", &"a".repeat(25), "5D77680000000000000000A0", "123", &format!("{key}/{key}")] {
+            let url = Url::parse(&format!("https://discover.provider.plex.tv/actions/addToWatchlist?ratingKey={}", urlencoding_min(bad))).unwrap();
+            let got = check_call(Method::Put, &url, &d, &b());
+            assert!(matches!(got, Err(Deny::Param) | Err(Deny::Path)), "{bad} -> {got:?}");
+        }
+        assert_eq!(check_call(Method::Put, &u("https://discover.provider.plex.tv/actions/addToWatchlist?ratingKey=5d77680000000000000000a0&ratingKey=5d77680000000000000000a0"), &d, &b()), Err(Deny::Param));
+        assert_eq!(check_call(Method::Put, &u("https://discover.provider.plex.tv/actions/addToWatchlist"), &d, &b()), Err(Deny::Param));
+        // D13 PMS / server cred, and Account cred, toward the watchlist URL.
+        assert_eq!(check_call(Method::Get, &u(list), &Cred::Server("M".into()), &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u(list), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Put, &u(&add), &Cred::Server("M".into()), &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u(list), &Cred::None, &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u(list), &Cred::PublicImage, &b()), Err(Deny::Host));
+        // D14 unlisted action.
+        assert_eq!(check_call(Method::Put, &u("https://discover.provider.plex.tv/actions/foo"), &d, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u("https://discover.provider.plex.tv/hubs/discover"), &d, &b()), Err(Deny::Path));
+        // D15 ACCOUNT_HOSTS / CDN are not a Watchlist widen.
+        assert!(!ACCOUNT_HOSTS.contains(&DISCOVER_HOST));
+        assert_eq!(check_call(Method::Get, &u("https://plex.tv/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u("https://plex.tv/library/sections/watchlist/all"), &Cred::Account, &b()), Err(Deny::Path));
+        assert_eq!(check_call(Method::Get, &u("https://clients.plex.tv/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u("https://metadata-static.plex.tv/library/sections/watchlist/all"), &d, &b()), Err(Deny::Host));
+        assert_eq!(check_call(Method::Get, &u("https://metadata-static.plex.tv/library/sections/watchlist/all"), &Cred::PublicImage, &b()), Err(Deny::Path));
+    }
+
+    fn urlencoding_min(s: &str) -> String {
+        let mut o = String::new();
+        for b in s.bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') { o.push(b as char); }
+            else { o.push_str(&format!("%{b:02X}")); }
+        }
+        o
     }
 }

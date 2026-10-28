@@ -45,7 +45,56 @@ export function missingLibraryText(loadErr, why) {
 
 // da Vinci LOW (a535fd6 review): Home and Details load errors use the same wording as the
 // libraries message: "Couldn’t load <what>." plus the fixed failure-category text.
-const LOADWHAT = { home: 'Home', item: 'this title', sec: 'this library', search: 'search results', person: 'this person' };
+const LOADWHAT = { home: 'Home', item: 'this title', sec: 'this library', search: 'search results', person: 'this person', watchlist: 'your watchlist' };
+
+export const HOME_TTL_MS = 2 * 60 * 1000;
+export const HUB_TTL_MS = 10 * 60 * 1000;
+export const WL_TTL_MS = 10 * 60 * 1000;
+export function paintMode({ parked, json, disk }) {
+  if (parked) return 'reattach';
+  if (json) return 'paint-cached';
+  if (disk) return 'paint-disk';
+  return 'skeleton';
+}
+export function singleFlight() {
+  let inflight = null, key = null, seq = 0;
+  return {
+    run(k, force, fn) {
+      if (inflight && key === k) return inflight;
+      key = k; const my = ++seq;
+      const p = Promise.resolve().then(fn);
+      inflight = p;
+      const clear = () => { if (seq === my) inflight = null; };
+      p.then(clear, clear);
+      return p;
+    },
+    reset() { seq++; inflight = null; key = null; },
+  };
+}
+export function freshEnough(at, now, ttl) { return typeof at === 'number' && now >= at && now - at < ttl; }
+export function watchlistBtnState(onList, watchKey) {
+  const key = typeof watchKey === 'string' && /^[0-9a-f]{24}$/.test(watchKey) ? watchKey : '';
+  if (!key) return { label: 'Watchlist unavailable', on: false, disabled: true, aria: 'This title has no Universal Watchlist id' };
+  if (onList) return { label: 'On Watchlist', on: true, disabled: false, aria: 'On Watchlist. Click to remove' };
+  return { label: 'Add to Watchlist', on: false, disabled: false, aria: 'Add to Watchlist' };
+}
+export function watchlistFilter(list, filter) {
+  const kind = filter === 'movies' ? 'movie' : filter === 'tv' ? 'show' : '';
+  return (list || []).filter(x => x && (!kind || x.kind === kind));
+}
+export function emptyWatchlistText(filter, n) {
+  if (n) return '';
+  if (filter === 'movies') return 'No movies on your watchlist.';
+  if (filter === 'tv') return 'No TV shows on your watchlist.';
+  return 'Your watchlist is empty.';
+}
+export function snapSafe(obj) {
+  let s; try { s = JSON.stringify(obj); } catch (e) { return null; }
+  if (!s || s.length > 400000) return null;
+  if (/X-Plex-Token|authToken|accessToken|plex\.direct|password|SecretString/i.test(s)) return null;
+  return s;
+}
+export function cacheKey(route, srcGen) { return String(srcGen) + '\n' + route; }
 export function loadErrorText(kind, err, why) {
   return 'Couldn’t load ' + (LOADWHAT[kind] || 'this page') + '. ' + (why ? why(err) : 'Something went wrong. Try again.');
 }
@@ -154,14 +203,68 @@ export function navInput(e) {
 }
 // fu7f: keep the old page on screen while the next one loads (no black flash, no raw text):
 // begin() moves the current page into a fixed snapshot layer over the scroller; end() fades it out.
-export function pageSwap({ doc, scroller, view, host, fadeMs = 180 }) {
+// An inline opacity lock is not enough. The shelf rule is `.pxfade { opacity:0; transition:.28s }`
+// plus loading=lazy. WebKit restarts that transition when the node is reparented into the
+// transformed ghost, and a moved lazy image can drop its bitmap. Hero art has neither, so it stayed.
+export function pageSwap({ doc, scroller, view, host, fadeMs = 180, onRetire = null }) {
   let ghost = null, t = 0;
-  const drop = g => { if (g && g.parentNode) g.parentNode.removeChild(g); };
+  const fading = new Set();
+  const named = (n, name) => !!(n && (n.className === name || (n.classList && n.classList.contains(name))));
+  const clearBd = bd => {
+    if (!bd || !bd.style) return;
+    bd.style.position = ''; bd.style.top = ''; bd.style.right = ''; bd.style.bottom = ''; bd.style.left = '';
+    bd.style.width = ''; bd.style.height = '';
+  };
+  const takeNodes = g => {
+    const box = doc.createElement('div');
+    let clip = null;
+    for (const c of [...(g.children || [])]) {
+      if (named(c, 'pxghostclip')) clip = c;
+      else { if (named(c, 'pxbackdrop')) clearBd(c); box.appendChild(c); }
+    }
+    const inner = clip && [...(clip.children || [])].find(c => named(c, 'pxghosti'));
+    if (inner) while (inner.firstChild) box.appendChild(inner.firstChild);
+    return box;
+  };
+  const drop = g => {
+    fading.delete(g);
+    if (!g || g._taken) return;
+    const info = g._park; g._park = null;
+    const box = info ? takeNodes(g) : null;
+    if (g.parentNode) g.parentNode.removeChild(g);
+    if (info && onRetire) onRetire(info, box);
+  };
+  // Painted shelf frames only. The canvas sits *behind* the img: a still-good img covers it,
+  // and a restarted fade or a cleared bitmap shows the copy instead of the empty tile.
+  const holdPainted = root => {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('.pxcard .poster img.pxfade.in').forEach(img => {
+      if (img.naturalWidth && !(img.dataset && img.dataset.baked) && img.parentNode) {
+        try {
+          const c = doc.createElement('canvas');
+          c.width = img.naturalWidth; c.height = img.naturalHeight;
+          const x = c.width && c.height && c.getContext && c.getContext('2d');
+          if (x) {
+            x.drawImage(img, 0, 0);
+            c.className = 'pxbake'; c.setAttribute('aria-hidden', 'true');
+            if (img.dataset) img.dataset.baked = '1';
+            img.parentNode.insertBefore(c, img);
+          }
+        } catch (e) { /* undecoded draw: the img itself is still the paint */ }
+      }
+      // Commit this before the move. Leaving .pxfade on is what let the 0.28s fade restart.
+      if (img.classList) img.classList.remove('pxfade');
+      if (img.naturalWidth) { img.loading = 'eager'; img.decoding = 'sync'; }
+      img.style.transition = 'none'; img.style.opacity = '1';
+    });
+    if (typeof root.offsetWidth === 'number') void root.offsetWidth;
+  };
   return {
     get active() { return !!ghost; },
     begin() {
       if (ghost) { view.textContent = ''; return; } // already showing the old page
       if (!view.firstChild || view.hidden) return;
+      holdPainted(view);
       const r = scroller.getBoundingClientRect ? scroller.getBoundingClientRect() : { top: 0, left: 0, width: 0, height: 0 };
       const g = doc.createElement('div'); g.className = 'pxghost'; g.setAttribute('aria-hidden', 'true');
       Object.assign(g.style, { top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px' });
@@ -184,8 +287,24 @@ export function pageSwap({ doc, scroller, view, host, fadeMs = 180 }) {
       clip.appendChild(inner); g.appendChild(clip); (host || doc.body).appendChild(g); ghost = g;
       clearTimeout(t); t = setTimeout(() => this.end(), 30000); // safety net; route() normally ends it
     },
+    tag(info) { if (ghost && info) ghost._park = info; },
+    // Pull a still-showing parked page back before the fade finishes (quick Back).
+    claim(id, token) {
+      const cands = [];
+      if (ghost && ghost._park && ghost._park.id === id) cands.push(ghost);
+      fading.forEach(x => { if (x._park && x._park.id === id) cands.push(x); });
+      const g = cands.find(x => !token || x._park.token === token);
+      if (!g) return null;
+      const info = g._park; g._park = null; g._taken = true;
+      const box = takeNodes(g);
+      if (ghost === g) { clearTimeout(t); ghost = null; }
+      fading.delete(g);
+      if (g.parentNode) g.parentNode.removeChild(g);
+      return { info, box };
+    },
     end() {
-      clearTimeout(t); const g = ghost; ghost = null; if (!g) return;
+      clearTimeout(t); const g = ghost; ghost = null; if (!g || g._taken) return;
+      fading.add(g);
       g.classList.add('out'); setTimeout(() => drop(g), fadeMs + 40);
     },
   };
@@ -211,7 +330,13 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   const nav = el('nav', 'pxnav'); nav.id = 'pxNav'; nav.hidden = true;
   const side = document.getElementById('nav'); if (side) side.before(nav);
   let on = false, sections = [], gen = 0, server = '', onScroll = null, srcGen = 0;
-  const sm = scrollMemory({ scroller: main, hist: history }), swap = pageSwap({ doc: document, scroller: main, view, host: main });
+  const park = new Map(), secCache = new Map(), homeFlight = singleFlight(), wlFlight = singleFlight(), wlKeys = new Set();
+  let homeMem = null, wlMem = null, diskHome = null, curPark = '', seenEpoch = null, snapP = null, wlKnown = false, wlFilter = 'all';
+  const sm = scrollMemory({ scroller: main, hist: history }), swap = pageSwap({ doc: document, scroller: main, view, host: main, onRetire: (info, box) => {
+    const slot = info && park.get(info.id);
+    if (!slot || !slot.pending || slot.token !== info.token) return;
+    slot.dom = box; slot.pending = false;
+  } });
   // History stays on Alt+Left/Right and mouse buttons 4/5. The top bar has no Back/Forward.
   const navGo = d => { if (!on || !location.hash.startsWith('#px/')) return false; if (d === 'back') { if (sm.index > 0) history.back(); } else if (sm.canForward) history.forward(); return true; };
   for (const t of ['mousedown', 'auxclick']) addEventListener(t, e => { if (on && navInput(e)) e.preventDefault(); }, true);
@@ -389,7 +514,75 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   function status(msg) { view.textContent = ''; view.appendChild(el('p', 'muted pxstatus', msg)); }
   function loading(target) { const w = el('div', 'pxload'); w.setAttribute('role', 'status'); w.setAttribute('aria-label', 'Loading'); w.setAttribute('aria-busy', 'true'); for (const c of ['a', 'b', 'c']) w.appendChild(el('i', 'pxsk ' + c)); (target || view).appendChild(w); return w; }
   // Fixed text per Rust failure category (hooks.why); raw error text is never shown.
-  function fail(e, kind) { status(loadErrorText(kind, e, hooks.why)); }
+  function fail(e, kind) {
+    status(loadErrorText(kind, e, hooks.why));
+    const b = el('button', 'pxlink', 'Retry'); b.type = 'button';
+    b.onclick = () => { const g = ++gen; if (kind === 'home') home(g, { force: true }); else if (kind === 'watchlist') watchlistPage(g, true); else route(); };
+    view.appendChild(b);
+  }
+  function routeParkId(h) {
+    if (h === '#px/home') return 'home';
+    if (h === '#px/watchlist') return 'watchlist';
+    const m = /^#px\/sec\/([0-9a-f]{24})(?:\/all)?$/.exec(h || '');
+    return m ? 'sec/' + m[1] : '';
+  }
+  function wipeBrowseCache() {
+    park.clear(); secCache.clear(); homeFlight.reset(); wlFlight.reset();
+    homeMem = null; wlMem = null; diskHome = null; curPark = ''; seenEpoch = null; snapP = null;
+    wlKeys.clear(); wlKnown = false;
+  }
+  function noteEpoch(ep) {
+    if (ep == null) return false;
+    const rotated = seenEpoch != null && ep !== seenEpoch;
+    if (rotated) { epochFlip = true; park.clear(); secCache.clear(); wlMem = null; diskHome = null; curPark = ''; homeFlight.reset(); wlFlight.reset(); homeMem = null; }
+    seenEpoch = ep;
+    return rotated;
+  }
+  function stashLeaving(id, scroll) {
+    if (!id || !view.firstChild) return;
+    if (swap.active) { swap.begin(); return; } // a snapshot is already up; don't clone or wipe it
+    const prev = park.get(id);
+    swap.begin();
+    if (!swap.active) return;
+    const info = { id, token: {}, at: prev ? prev.at : Date.now(), scroll: scroll || 0, json: prev ? prev.json : null };
+    swap.tag(info);
+    park.delete(id);
+    park.set(id, { dom: null, pending: true, token: info.token, at: info.at, scroll: info.scroll, json: info.json });
+    while (park.size > 4) park.delete(park.keys().next().value);
+  }
+  function reattach(id) {
+    const hit = park.get(id); if (!hit) return false;
+    if (hit.pending) {
+      const claimed = swap.claim(id, hit.token);
+      if (!claimed) return false;
+      hit.dom = claimed.box; hit.pending = false;
+    }
+    if (!hit.dom) return false;
+    park.delete(id); park.set(id, hit);
+    while (hit.dom.firstChild) view.appendChild(hit.dom.firstChild);
+    curPark = id;
+    return true;
+  }
+  function armSnap() {
+    const sg = srcGen;
+    snapP = Promise.resolve().then(() => invoke('prefs_get')).then(p => {
+      if (sg !== srcGen) return null;
+      let o = null; try { o = JSON.parse((p && p.homeSnap) || ''); } catch (e) { o = null; }
+      if (!o || !o.home) return null;
+      if (o.server && server && o.server !== server) return null;
+      diskHome = o; return o;
+    }).catch(() => null);
+  }
+  async function browseHome(force) {
+    const sg = srcGen;
+    if (!force && homeMem && homeMem.sg === sg && freshEnough(homeMem.at, Date.now(), HOME_TTL_MS)) return homeMem.v;
+    const v = await homeFlight.run(String(sg), !!force, () => invoke('browse_home'));
+    if (sg !== srcGen || !v) return v;
+    noteEpoch(v.epoch);
+    homeMem = { v, at: Date.now(), sg };
+    const slot = park.get('home'); if (slot) { slot.at = homeMem.at; slot.json = homeMem; }
+    return v;
+  }
 
   // Sidebar: icon + label so the links survive the collapsed (72px) rail at <1600px.
   function navLink(label, hash, r, ic) { const a = el('a'); a.href = hash; a.dataset.r = r; a.dataset.label = label; a.setAttribute('aria-label', label); a.appendChild(pxIcon(ic)); a.appendChild(el('span', null, label)); return a; }
@@ -397,8 +590,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   function loadSections() {
     // srcGen: a reply from the previous server (or from before the pick) must never
     // overwrite the new server's library list; that left category links pointing at stale ids.
-    const sg = srcGen; navState = 'loading'; renderNav();
-    invoke('browse_home').then(v => { if (sg !== srcGen) return; sections = dropMusicLibs(v.sections); navState = 'ok'; renderNav(); warmLibs(); }).catch(() => { if (sg !== srcGen) return; navState = 'fail'; renderNav(); });
+    const sg = srcGen;
+    if (!sections.length) { navState = 'loading'; renderNav(); }
+    browseHome(false).then(v => { if (sg !== srcGen || !v) return; sections = dropMusicLibs(v.sections); navState = 'ok'; renderNav(); warmLibs(); }).catch(() => { if (sg !== srcGen) return; navState = 'fail'; renderNav(); });
   }
   // Movies/TV hubs share Home's cache. Warm them when the library list arrives so a click is not a cold wait.
   function warmLibs() { sections.forEach(s => { if (s.kind === 'movie' || s.kind === 'show') invoke('browse_section_hubs', { id: String(s.id) }).catch(() => {}); }); }
@@ -413,6 +607,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     // FU7: no server picker in the rail; versions on the title page replace it.
     const sl = navLink('Search', '#px/search', 'search', 'search'); sl.setAttribute('aria-keyshortcuts', 'Control+K'); sl.onclick = e => { e.preventDefault(); pkOpen(); }; nav.appendChild(sl);
     nav.appendChild(navLink('Home', '#px/home', 'home', 'home'));
+    nav.appendChild(navLink('Watchlist', '#px/watchlist', 'watchlist', 'playlist'));
     nav.appendChild(el('div', 'navh muted small', 'Libraries'));
     sections.forEach(s => nav.appendChild(navLink(s.title, '#px/sec/' + s.id, 'sec/' + s.id, SECIC[s.kind] || 'folder')));
     if (navState === 'loading' && !sections.length) { const m = el('div', 'pxnavmsg pxload'); m.setAttribute('role', 'status'); m.setAttribute('aria-label', 'Loading libraries'); m.appendChild(el('i', 'pxsk a')); m.appendChild(el('i', 'pxsk b')); nav.appendChild(m); }
@@ -422,11 +617,39 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   let cur = 'home';
   function mark(r) { cur = r; nav.querySelectorAll('a').forEach(a => { const y = r === a.dataset.r || r.startsWith(a.dataset.r + '/'); a.classList.toggle('on', y); y ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); }); }
 
-  async function home(g) {
-    mark('home'); view.textContent = ''; loading();
-    const sg = srcGen; const v = await invoke('browse_home'); if (g !== gen || sg !== srcGen) return;
+  function showingHome() { return !!(view.querySelector('.pxhomehero, .pxstrip, h1.pxh')); }
+  async function home(g, opt) {
+    opt = opt || {};
+    mark('home'); curPark = 'home';
+    const sg = srcGen;
+    let disk = null;
+    if (!showingHome() && !(homeMem && homeMem.sg === sg)) {
+      if (!snapP) armSnap();
+      disk = diskHome || await snapP;
+      if (g !== gen || sg !== srcGen) return;
+      if (disk && disk.server && server && disk.server !== server) disk = null;
+    }
+    const mode = paintMode({ parked: showingHome(), json: !!(homeMem && homeMem.sg === sg), disk: !!(disk && disk.home) });
+    if (mode === 'skeleton') { view.textContent = ''; loading(); }
+    else if (mode === 'paint-disk' && disk && disk.home && !showingHome()) paintHome(disk.home, g, false);
+    let v;
+    try { v = await browseHome(!!opt.force); }
+    catch (e) {
+      if (g !== gen || sg !== srcGen) return;
+      if (showingHome()) { toast('Couldn’t refresh Home'); return; }
+      throw e;
+    }
+    if (g !== gen || sg !== srcGen || !v) return;
+    const rotated = epochFlip;
+    epochFlip = false;
+    paintHome(v, g, !rotated && (!!opt.patch || showingHome()));
+    saveSnap(v);
+    warmLibs();
+    warmWatchlist();
+  }
+  let epochFlip = false;
+  function paintHome(v, g, patch) {
     sections = dropMusicLibs(v.sections); renderNav(); mark('home');
-    view.textContent = ''; clearCollage();
     const cwAll = dropMusic(v.continueWatching);
     const odAll = dropMusic(v.onDeck);
     const hi = cwAll[0] || odAll[0];
@@ -439,17 +662,18 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       if (x.kind !== 'episode' && hi.kind !== 'episode' && x.title && x.title === hi.title && String(x.year || '') === String(hi.year || '')) return false;
       return true;
     };
+    let hw = null, bd = null;
     if (hi) {
-      const bd = backdrop(hi); if (bd) view.appendChild(bd);
+      bd = backdrop(hi);
       const hue = img(hi.art || hi.thumb, 64, 64); if (hue) ambientHue(hue);
-      const hw = el('div', 'pxhomehero');
+      hw = el('div', 'pxhomehero'); hw.dataset.hero = hi.id || '';
       const meter = fromCw ? cwMeter(hi) : null;
       // Tall glass is the official cover only (`poster`). An episode's `thumb` is the scene still;
       // the show cover is grandparentThumb, which Rust puts on `poster`. Never fall back to thumb or art here.
       const cu = img(hi.poster, 420, 630);
       if (cu) {
         const c2 = el('a', 'pxcase'); c2.href = '#px/item/' + hi.id; c2.tabIndex = -1; c2.setAttribute('aria-hidden', 'true');
-        const ci = el('img'); ci.alt = ''; ci.decoding = 'async'; ci.src = cu; ci.onerror = () => { c2.remove(); hw.classList.remove('hascase'); };
+        const ci = el('img'); ci.alt = ''; ci.decoding = 'async'; ci.loading = 'eager'; ci.fetchPriority = 'high'; ci.src = cu; ci.onerror = () => { c2.remove(); hw.classList.remove('hascase'); };
         c2.appendChild(ci); c2.appendChild(el('i', 'pxcasesp'));
         if (meter && meter.dur) {
           const b = el('div', 'pxprog'); const f = el('i');
@@ -481,15 +705,71 @@ export function mountPlexBrowse(invoke, hooks = {}) {
         rs.onclick = () => startTitlePlay(hi, false);
         h.appendChild(rs);
       }
-      hw.appendChild(h); view.appendChild(hw);
-    } else view.appendChild(el('h1', 'pxh', 'Home'));
-    if ((v.servers || 0) > 1) view.appendChild(el('p', 'muted small pxmsrv', 'Browsing ' + (v.answered || v.servers) + ' of ' + v.servers + ' servers'));
+      hw.appendChild(h);
+    }
+    const srv = (v.servers || 0) > 1 ? el('p', 'muted small pxmsrv', 'Browsing ' + (v.answered || v.servers) + ' of ' + v.servers + ' servers') : null;
     // FU7: the promoted hubs can repeat Continue Watching / On Deck; show each once.
     const dup = h => /continue|ondeck|on deck|next up/i.test((h.ident || '') + ' ' + (h.title || ''));
-    warmLibs();
-    [row('Continue Watching', cwAll.filter(notHi), false, true), row('Next Up', odAll.filter(notHi), false, true), ...v.hubs.filter(h => !dup(h)).map(h => row(h.title, dropMusic(h.items)))].forEach(x => x && view.appendChild(x));
-    if (!view.querySelector('.pxrow')) view.appendChild(el('p', 'muted', 'Nothing here yet.'));
+    const built = [];
+    const push = (n, key) => { if (!n) return; if (key) n.dataset.row = key; built.push(n); };
+    push(row('Continue Watching', cwAll.filter(notHi), false, true), 'cw');
+    push(row('Next Up', odAll.filter(notHi), false, true), 'od');
+    (v.hubs || []).filter(h => h && !dup(h)).forEach(h => { const n = row(h.title, dropMusic(h.items)); if (n) push(n, String(h.ident || h.title || 'hub').slice(0, 80)); });
+    const wl = watchStrip(); if (wl) built.push(wl);
+    const heroNode = hw || el('h1', 'pxh', 'Home');
+    if (!patch) {
+      view.textContent = ''; clearCollage();
+      if (bd) view.appendChild(bd);
+      view.appendChild(heroNode);
+      if (srv) view.appendChild(srv);
+      built.forEach(n => view.appendChild(n));
+    } else {
+      view.querySelectorAll('.pxload').forEach(n => n.remove());
+      const oldBd = [...view.children].find(n => n.classList && n.classList.contains('pxbackdrop'));
+      if (bd) { if (oldBd) oldBd.replaceWith(bd); else view.insertBefore(bd, view.firstChild); }
+      else if (oldBd) oldBd.remove();
+      const oldHero = view.querySelector('.pxhomehero') || view.querySelector('h1.pxh');
+      if (oldHero) oldHero.replaceWith(heroNode); else view.appendChild(heroNode);
+      const want = new Map(built.map(n => [n.dataset.row, n]));
+      view.querySelectorAll('.pxstrip').forEach(n => { const k = n.dataset.row; if (want.has(k)) { n.replaceWith(want.get(k)); want.delete(k); } else n.remove(); });
+      want.forEach(n => view.appendChild(n));
+      const oldSrv = view.querySelector('.pxmsrv');
+      if (srv) { if (oldSrv) oldSrv.replaceWith(srv); else view.appendChild(srv); }
+      else if (oldSrv) oldSrv.remove();
+    }
+    const oldEmpty = [...view.querySelectorAll('p.muted')].find(n => n.textContent === 'Nothing here yet.');
+    if (!view.querySelector('.pxrow')) { if (!oldEmpty) view.appendChild(el('p', 'muted', 'Nothing here yet.')); }
+    else if (oldEmpty) oldEmpty.remove();
     afterPaint(() => { if (g === gen) { view.querySelectorAll('.pxstrip').forEach(syncArrows); if (hi) bindHomeHero(g); } });
+  }
+  function saveSnap(v) {
+    const home = {
+      sections: (v.sections || []).slice(0, 40),
+      continueWatching: (v.continueWatching || []).slice(0, 24),
+      onDeck: (v.onDeck || []).slice(0, 24),
+      hubs: (v.hubs || []).slice(0, 8).map(h => ({ title: h.title, ident: h.ident, items: (h.items || []).slice(0, 20) })),
+      answered: v.answered, servers: v.servers, pending: !!v.pending, epoch: v.epoch,
+    };
+    const s = snapSafe({ server, at: Date.now(), home });
+    if (!s) return;
+    diskHome = { server, at: Date.now(), home };
+    invoke('prefs_set', { patch: { homeSnap: s } }).catch(() => {});
+  }
+  function watchStrip() {
+    const list = wlMem && wlMem.list;
+    if (!list || !list.length) return null;
+    const owned = list.filter(c => c && c.playId).slice(0, 30).map(c => ({ id: c.playId, kind: c.kind, title: c.title, year: c.year, poster: c.poster, thumb: c.thumb, art: c.art }));
+    if (owned.length) { const n = strip({ title: 'Watchlist', items: owned, see: '#px/watchlist', count: list.length, key: 'watchlist' }); if (n) n.dataset.row = 'watchlist'; return n; }
+    const sec = el('section', 'pxstrip'); sec.dataset.row = 'watchlist';
+    const hh = el('h2', 'pxsth'); hh.appendChild(el('span', 'pxstt', 'Watchlist')); hh.appendChild(el('span', 'pxstc', ' · ' + list.length));
+    hh.appendChild(el('span', 'pxstc', ' · ')); const a = el('a', 'pxsee', 'See all ›'); a.href = '#px/watchlist'; hh.appendChild(a); sec.appendChild(hh);
+    sec.appendChild(el('p', 'muted', 'Not in your library'));
+    return sec;
+  }
+  function invalidateHome() {
+    homeMem = null; homeFlight.reset();
+    const slot = park.get('home'); if (slot) slot.at = 0;
+    if ((location.hash || '') === '#px/home') { const g = ++gen; home(g, { force: true, patch: showingHome() }); }
   }
 
   // ---- Library: Jellyfin-style tabs, filter bar, tiles, A–Z jump, virtualised grid
@@ -500,7 +780,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     tab = TABS.some(t => t[0] === tab) ? tab : 'all';
     if (!FK.test(fk || '')) { fk = ''; fv = ''; }
     let loadErr;
-    if (!sections.length) { const sg = srcGen; try { const v = (await invoke('browse_home')).sections; if (sg === srcGen) sections = dropMusicLibs(v); } catch (e) { loadErr = e; } if (g !== gen) return; }
+    if (!sections.length) { const sg = srcGen; try { const v = (await browseHome(false) || {}).sections; if (sg === srcGen) sections = dropMusicLibs(v); } catch (e) { loadErr = e; } if (g !== gen) return; }
     const s = sections.find(x => String(x.id) === id); mark('sec/' + id);
     if (!s) return status(missingLibraryText(loadErr, hooks.why));
     view.textContent = '';
@@ -510,7 +790,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     TABS.filter(t => !(s && s.kind === 'artist' && (t[0] === 'collections' || t[0] === 'studios'))).forEach(([k, n]) => { const a = el('a', 'pxtab' + (k === tab ? ' on' : ''), n); a.href = `#px/sec/${id}/${k}`; a.setAttribute('role', 'tab'); a.setAttribute('aria-selected', String(k === tab)); tabs.appendChild(a); });
     view.appendChild(tabs);
     const landing = (s.kind === 'movie' || s.kind === 'show') && tab === 'all' && !fk;
-    const sk = landing ? loading() : null;
+    const sk = landing && !secCache.get(cacheKey('sec/' + id, srcGen)) ? loading() : null;
     if (landing) { const box = await sectionLanding(id, g); if (sk) sk.remove(); if (g !== gen) return; if (box) view.appendChild(box); }
     if (tab === 'collections') {
       const w = loading(); const cs = await invoke('browse_collections', { id }); if (g !== gen) return; w.remove();
@@ -579,9 +859,20 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     }
   }
 
-  async function sectionLanding(id, g) {
+  async function sectionLanding(id, g, quiet) {
+    const ck = cacheKey('sec/' + id, srcGen);
+    const hit = secCache.get(ck);
+    const remember = hubs => { secCache.set(ck, { at: Date.now(), hubs }); const slot = park.get('sec/' + id); if (slot) slot.at = Date.now(); };
     let hubs;
-    try { hubs = await invoke('browse_section_hubs', { id }); } catch (e) { return null; }
+    if (hit && freshEnough(hit.at, Date.now(), HUB_TTL_MS)) hubs = hit.hubs;
+    else if (hit) {
+      hubs = hit.hubs;
+      invoke('browse_section_hubs', { id }).then(fresh => { if (g !== gen) return; remember(fresh); sectionLanding(id, g, true); }).catch(() => {});
+    } else {
+      try { hubs = await invoke('browse_section_hubs', { id }); } catch (e) { return null; }
+      if (g !== gen) return null;
+      remember(hubs);
+    }
     if (g !== gen) return null;
     const rows = (hubs || []).map(h => ({ title: h.title || '', ident: h.ident || '', items: dropMusic(h.items) })).filter(h => h.title && h.items.length);
     if (!rows.length) return null;
@@ -589,8 +880,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const heroHub = cw || rows[0];
     const heroIt = heroHub.items[0];
     const box = el('div', 'pxland');
+    let bd = null;
     if (heroIt) {
-      const bd = backdrop(heroIt); if (bd) view.appendChild(bd);
+      bd = backdrop(heroIt);
       const hue = img(heroIt.art || heroIt.thumb, 64, 64); if (hue) ambientHue(hue);
       const w = el('div', 'pxlhero');
       const cu = img(heroIt.poster || heroIt.thumb, 420, 630);
@@ -616,6 +908,15 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       box.appendChild(strip({ title: h.title, ident: h.ident, items, see, count: h.items.length, key: h.ident || h.title, wide: false, still }));
     });
     afterPaint(() => { if (g === gen) box.querySelectorAll('.pxstrip').forEach(syncArrows); });
+    if (quiet) {
+      const oldBd = [...view.children].find(n => n.classList && n.classList.contains('pxbackdrop'));
+      const oldBox = view.querySelector('.pxland');
+      if (bd) { if (oldBd) oldBd.replaceWith(bd); else view.insertBefore(bd, view.firstChild); }
+      else if (oldBd) oldBd.remove();
+      if (oldBox) oldBox.replaceWith(box);
+      return box;
+    }
+    if (bd) view.appendChild(bd);
     return box;
   }
 
@@ -631,15 +932,14 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     return t ? el('p', 'muted small pxfile', 'File · ' + t) : null;
   }
   // FU7: every copy of this title across your servers, best first (Rust sorts owned
-  // before shared, then quality). Text only; ids are opaque; a server badge only when >1.
+  // before shared, then quality). Text only; ids are opaque. The server name stays on
+  // the row even when this title resolved a single play source (Guns Up).
   function versionsList(it) {
-    const multi = new Set((it.versions || []).map(v => v.server)).size > 1;
     const w = el('div', 'pxvers'); w.setAttribute('role', 'list');
     (it.versions || []).forEach(v => { const b = el('button', 'pxver' + (v.current ? ' cur' : '')); b.type = 'button'; b.setAttribute('role', 'listitem');
       b.appendChild(el('b', null, v.label || 'Unknown'));
       b.appendChild(el('span', 'muted small', [v.hdr ? 'HDR' : '', (v.codec || '').toUpperCase(), v.bitrateKbps ? (v.bitrateKbps / 1000).toFixed(1) + ' Mbps' : ''].filter(Boolean).join(' · ')));
-      // SHOULD-4: server badge only when the copies span more than one server.
-      if (multi) b.appendChild(el('span', 'pxbadge' + (v.owned ? ' ow' : ' sh'), v.server + (v.owned ? ' · owned' : ' · shared')));
+      if (v.server) b.appendChild(el('span', 'pxbadge' + (v.owned ? ' ow' : ' sh'), v.server + (v.owned ? ' · owned' : ' · shared')));
       if (v.picked) b.appendChild(el('span', 'pxbadge pk', 'Preferred'));
       b.title = v.current ? 'This copy' : 'Prefer this copy';
       b.onclick = () => invoke('version_pick', { id: v.id }).then(() => { w.querySelectorAll('.pxbadge.pk').forEach(x => x.remove()); /* LOW-C: every Preferred badge carries .pk, so only one survives */ const t = el('span', 'pxbadge pk', 'Preferred'); b.appendChild(t); }).catch(() => {});
@@ -661,7 +961,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
         const t = el('div'); t.appendChild(el('b', null, x.kind === 'episode' ? `E${x.index ?? '?'} · ${x.title}` : x.title)); t.appendChild(el('div', 'muted small', x.kind === 'episode' ? (x.grandparentTitle || '') : (x.year ?? ''))); a.appendChild(t); up.appendChild(a); }); };
     const q = it.kind === 'episode' && ID.test(it.parentId || '') ? invoke('browse_children', { id: it.parentId }).then(k => k.filter(x => (x.index ?? 0) > (it.index ?? 0)))
       : it.kind === 'season' ? invoke('browse_children', { id: it.id }).then(k => k.filter(x => !x.watched))
-      : invoke('browse_home').then(v => dropMusic(v.onDeck).filter(x => x.id !== it.id));
+      : browseHome(false).then(v => dropMusic(v && v.onDeck).filter(x => x.id !== it.id));
     q.then(l => { if (gen === g0) add(l); }).catch(() => { if (gen === g0) add([]); });
     return sec;
   }
@@ -672,7 +972,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     // in sessionStorage and are not sent here, so play_start's HLS query (and the /hls/<hex> rewrite) is unchanged.
     const versionId = it.playVersion || it.defaultVersion || null;
     it.playVersion = null;
-    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: it.durationMs || 0, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0) };
+    const durMs = it.durationMs || 0;
+    const chapters = durMs > 0 ? (it.chapters || []).slice(0, 48).map(c => ({ t: typeof c.title === 'string' ? c.title.slice(0, 80) : '', at: Math.max(0, Math.min(1, (c.startMs || 0) / durMs)) })) : [];
+    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: durMs, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0), chapters };
     try { sessionStorage.setItem('pxPlayCtx', JSON.stringify(ctx)); } catch (e) {}
     location.hash = '#player/plex';
   }
@@ -747,12 +1049,101 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     document.addEventListener('click', e => { if (!feat.contains(e.target)) shut(); });
     feat.appendChild(fb); feat.appendChild(fm); return feat;
   }
-  function watchlistBtn() {
-    const b = el('button', 'pxrb lab'); b.type = 'button';
-    b.appendChild(pxIcon('playlist')); b.appendChild(el('span', 'pxrbl', 'Watchlist · coming soon'));
-    b.title = 'Watchlist · coming soon'; b.setAttribute('aria-label', 'Watchlist · coming soon');
-    b.onclick = () => toast('Watchlist · coming soon');
+  function syncWatchButtons() {
+    view.querySelectorAll('button.pxwlbtn').forEach(b => {
+      const st = watchlistBtnState(wlKeys.has(b.dataset.watch || ''), b.dataset.watch || '');
+      const lab = b.querySelector('.pxrbl'); if (lab) lab.textContent = st.label;
+      b.disabled = st.disabled; b.title = st.label; b.setAttribute('aria-label', st.aria); b.classList.toggle('on', !!st.on);
+    });
+  }
+  function watchlistBtn(it) {
+    const key = it && it.watchKey;
+    const st = watchlistBtnState(wlKnown && wlKeys.has(key), key);
+    const b = el('button', 'pxrb lab pxwlbtn' + (st.on ? ' on' : '')); b.type = 'button'; b.dataset.watch = st.disabled ? '' : key;
+    b.appendChild(pxIcon('playlist')); const lab = el('span', 'pxrbl', st.label); b.appendChild(lab);
+    b.title = st.label; b.disabled = st.disabled; b.setAttribute('aria-label', st.aria);
+    b.onclick = () => {
+      const now = watchlistBtnState(wlKeys.has(key), key);
+      if (now.disabled) return;
+      const onList = wlKeys.has(key);
+      if (onList) wlKeys.delete(key); else wlKeys.add(key);
+      wlKnown = true; syncWatchButtons();
+      const req = onList ? invoke('watchlist_remove', { ratingKey: key }) : invoke('watchlist_add', { id: it.id });
+      req.then(() => browseWatchlist(true)).catch(() => {
+        if (onList) wlKeys.add(key); else wlKeys.delete(key);
+        syncWatchButtons();
+        toast(onList ? 'Couldn’t remove from Watchlist' : 'Couldn’t add to Watchlist');
+      });
+    };
     return b;
+  }
+  async function browseWatchlist(force) {
+    const sg = srcGen;
+    if (!force && wlMem && wlMem.sg === sg && freshEnough(wlMem.at, Date.now(), WL_TTL_MS)) return wlMem.list;
+    const list = await wlFlight.run(String(sg), !!force, () => invoke('watchlist_list'));
+    if (sg !== srcGen) return Array.isArray(list) ? list : [];
+    const arr = Array.isArray(list) ? list : [];
+    wlMem = { list: arr, at: Date.now(), sg };
+    wlKnown = true; wlKeys.clear(); arr.forEach(c => { if (c && typeof c.ratingKey === 'string') wlKeys.add(c.ratingKey); });
+    syncWatchButtons();
+    if ((location.hash || '') === '#px/home' && showingHome()) {
+      const row = view.querySelector('.pxstrip[data-row="watchlist"]');
+      const next = watchStrip();
+      if (row && next) row.replaceWith(next);
+      else if (next) view.appendChild(next);
+      else if (row) row.remove();
+    }
+    return arr;
+  }
+  function warmWatchlist() { browseWatchlist(false).catch(() => {}); }
+  function paintWatchlist(list) {
+    const keep = wlFilter;
+    view.textContent = '';
+    const page = el('div', 'pxwl');
+    page.appendChild(el('h1', 'pxh', 'Watchlist'));
+    const tabs = el('div', 'pxtabs'); tabs.setAttribute('role', 'tablist');
+    [['all', 'All'], ['movies', 'Movies'], ['tv', 'TV']].forEach(([k, n]) => {
+      const b = el('button', 'pxtab' + (k === keep ? ' on' : ''), n); b.type = 'button'; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(k === keep));
+      b.onclick = () => { wlFilter = k; paintWatchlist(list); };
+      tabs.appendChild(b);
+    });
+    page.appendChild(tabs);
+    const shown = watchlistFilter(list, keep);
+    const empty = emptyWatchlistText(keep, shown.length);
+    if (empty) page.appendChild(el('p', 'pxempty muted', empty));
+    else {
+      const gr = el('div', 'grid');
+      shown.forEach(c => {
+        if (c.playId) gr.appendChild(poster({ id: c.playId, kind: c.kind, title: c.title, year: c.year, poster: c.poster, thumb: c.thumb, art: c.art }));
+        else {
+          const card = el('div', 'card pxcard'); const p = el('div', 'poster');
+          const src = img(c.poster || c.thumb, 200, 300);
+          if (src) { const i = el('img'); i.alt = ''; i.loading = 'lazy'; i.decoding = 'async'; i.src = src; i.onerror = () => i.remove(); p.appendChild(i); }
+          card.appendChild(p);
+          const m = el('div', 'meta'); m.appendChild(el('div', 't', c.title || 'Untitled')); m.appendChild(el('div', 'muted small', c.year ?? ''));
+          if (c.searched) m.appendChild(el('div', 'muted small', 'Not in your library'));
+          card.appendChild(m); gr.appendChild(card);
+        }
+      });
+      page.appendChild(gr);
+    }
+    view.appendChild(page);
+  }
+  async function watchlistPage(g, force) {
+    mark('watchlist'); curPark = 'watchlist';
+    const sg = srcGen;
+    const have = wlMem && wlMem.sg === sg;
+    if (!have && !view.querySelector('.pxwl')) { view.textContent = ''; loading(); }
+    else if (have && !view.querySelector('.pxwl')) paintWatchlist(wlMem.list);
+    let list;
+    try { list = await browseWatchlist(!!force || !(have && freshEnough(wlMem.at, Date.now(), WL_TTL_MS))); }
+    catch (e) {
+      if (g !== gen) return;
+      if (view.querySelector('.pxwl')) { toast('Couldn’t refresh Watchlist'); return; }
+      throw e;
+    }
+    if (g !== gen || sg !== srcGen) return;
+    paintWatchlist(list || []);
   }
   function playRow(it) {
     const ra = el('div', 'pxround');
@@ -773,7 +1164,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       pb.onclick = e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; if (open) placeMenu(pb, menu); };
       document.addEventListener('click', e => { if (!slot.contains(e.target)) menu.hidden = true; });
       slot.appendChild(pb); slot.appendChild(menu); ra.appendChild(slot);
-    } else rb('play', 'Play', () => startTitlePlay(it, false));
+    } else { const b = rb('play', 'Play', () => startTitlePlay(it, false)); if (it.versionsPending) { b.title = 'Play · still checking other servers'; b.setAttribute('aria-label', b.title); } }
     const from = el('button', 'pxrb lab'); from.type = 'button'; from.appendChild(icon('rew')); from.appendChild(el('span', 'pxrbl', 'Play from start'));
     from.title = 'Play from start'; from.setAttribute('aria-label', 'Play from start');
     from.onclick = () => { it.playVersion = pickedVersion(it); startTitlePlay(it, true); };
@@ -782,9 +1173,9 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const ml = el('span', 'pxrbl', it.watched ? 'Mark unwatched' : 'Mark watched'); mk.appendChild(ml);
     const syncMk = () => { const t = it.watched ? 'Mark unwatched' : 'Mark watched'; ml.textContent = t; mk.title = t; mk.setAttribute('aria-label', t); };
     syncMk();
-    mk.onclick = () => { const next = !it.watched; invoke('mark_watched', { id: it.id, watched: next }).then(() => { it.watched = next; syncMk(); }).catch(() => toast('Couldn’t update watched state')); };
+    mk.onclick = () => { const next = !it.watched; invoke('mark_watched', { id: it.id, watched: next }).then(() => { it.watched = next; syncMk(); invalidateHome(); }).catch(() => toast('Couldn’t update watched state')); };
     ra.appendChild(mk);
-    ra.appendChild(watchlistBtn());
+    ra.appendChild(watchlistBtn(it));
     ra.appendChild(moreMenu(it));
     return ra;
   }
@@ -862,7 +1253,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     crow(it.directors.length > 1 ? 'Directors' : 'Director', it.directors.join(', ')); crow(it.writers.length > 1 ? 'Writers' : 'Writer', it.writers.join(', '));
     if (cr.childNodes.length) tx.appendChild(cr);
     if (it.kind === 'movie' || it.kind === 'episode') tx.appendChild(playRow(it));
-    else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn()); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
+    else if (it.kind === 'show' || it.kind === 'season') { const ra = el('div', 'pxround'); ra.appendChild(watchlistBtn(it)); ra.appendChild(moreMenu(it)); tx.appendChild(ra); }
     tx.appendChild(chaptersSection(it, g));
     if (it.cast.length) { const cs = el('section', 'pxheads'); cs.appendChild(el('h2', 'pxrowh', it.kind === 'episode' ? 'Cast & guest stars' : 'Credits')); const r = el('div', 'pxheadrow');
       it.cast.slice(0, 20).forEach(x => { const p = el(ID.test(x.id || '') ? 'a' : 'button', 'pxcred'); p.title = x.name; if (p.tagName === 'A') { p.href = '#px/person/' + x.id; p.onclick = e => { e.preventDefault(); openPerson(p, x.id, it); }; } else { p.type = 'button'; p.onclick = () => openPersonLocal(p, x, it); } const av = el('i', null, x.name.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2)); const ps = img(x.thumb, 240, 240); if (ps) { const pi = el('img'); pi.alt = ''; pi.loading = 'lazy'; pi.src = ps; pi.onerror = () => pi.remove(); av.appendChild(pi); } p.appendChild(av); p.appendChild(el('b', null, x.name)); p.appendChild(el('span', 'muted small', x.role)); r.appendChild(p); });
@@ -988,25 +1379,55 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   main.addEventListener('scroll', () => { if (!swap.active) sm.save(); if (onScroll) onScroll(); }, { passive: true });
   addEventListener('resize', () => { if (on) view.querySelectorAll('.pxstrip').forEach(syncArrows); if (onScroll && on) onScroll(true); });
 
+  function refreshParked(id, g) {
+    curPark = id;
+    if (id === 'home') {
+      if (!(homeMem && freshEnough(homeMem.at, Date.now(), HOME_TTL_MS))) home(g, { patch: true });
+      else bindHomeHero(g);
+    } else if (id === 'watchlist') {
+      if (!(wlMem && freshEnough(wlMem.at, Date.now(), WL_TTL_MS))) watchlistPage(g, false);
+    } else if (id.startsWith('sec/')) {
+      const hit = secCache.get(cacheKey(id, srcGen));
+      if (!hit || !freshEnough(hit.at, Date.now(), HUB_TTL_MS)) sectionLanding(id.slice(4), g, true);
+    }
+  }
   async function route() {
     if (!on) return;
     let h = location.hash || '#home';
     if (h === '#home' || h === '#') { go('#px/home'); return; }
     const isPx = h.startsWith('#px/');
-    document.body.classList.toggle('pxroute', isPx); view.hidden = !isPx; clearCollage();
-    if (!isPx) { swap.end(); mark(h === '#settings' ? 'settings' : ''); return; }
-    pm.close(false); sm.save(); const back = sm.enter(); swap.begin(); const g = ++gen; onScroll = null; const [, kind, ...rest] = h.split('/'); const part = rest.map(x => { try { return decodeURIComponent(x); } catch { return ''; } });
-    main.scrollTop = 0;
+    document.body.classList.toggle('pxroute', isPx); view.hidden = !isPx;
+    if (!isPx) { swap.end(); mark(h === '#settings' ? 'settings' : ''); curPark = ''; return; }
+    pm.close(false); sm.save(); const back = sm.enter(); const dest = routeParkId(h); const leaving = curPark; const yLeave = main.scrollTop; const same = !!(dest && dest === leaving && view.firstChild); if (!same) { if (leaving && leaving !== dest) stashLeaving(leaving, yLeave); else swap.begin(); }
+    const g = ++gen; onScroll = null; const [, kind, ...rest] = h.split('/'); const part = rest.map(x => { try { return decodeURIComponent(x); } catch { return ''; } });
     if (hooks.navDelay) { const d = hooks.navDelay(); if (d) await new Promise(r => setTimeout(r, d)); if (g !== gen) return; } // mock builds only
+    if (same) { refreshParked(dest, g); swap.end(); if (back != null) restoreScroll(back, g); return; }
+    if (dest && reattach(dest)) {
+      clearCollage();
+      mark(dest.startsWith('sec/') ? dest : dest);
+      const hit = park.get(dest);
+      main.scrollTop = back != null ? 0 : (hit && hit.scroll) || 0;
+      swap.end();
+      if (dest === 'home') bindHomeHero(g);
+      refreshParked(dest, g);
+      if (back != null) restoreScroll(back, g);
+      return;
+    }
+    clearCollage();
+    main.scrollTop = 0;
+    curPark = dest;
     try {
       if (kind === 'home') await home(g);
+      else if (kind === 'watchlist') await watchlistPage(g, false);
       else if (kind === 'sec') await section(part[0], part[1], part[2], part.slice(3).join('/'), g);
-      else if (kind === 'item') await item(part[0], g);
-      else if (kind === 'person') await person(part[0], g);
-      else if (kind === 'search') { pkOpen(part.join('/')); history.replaceState(null, '', '#px/home'); await home(g); }
-      else status('Not found');
+      else if (kind === 'item') { curPark = ''; await item(part[0], g); }
+      else if (kind === 'person') { curPark = ''; await person(part[0], g); }
+      else if (kind === 'search') { pkOpen(part.join('/')); history.replaceState(null, '', '#px/home'); curPark = 'home'; await home(g); }
+      else { curPark = ''; status('Not found'); }
     } catch (e) { if (g === gen) fail(e, kind); }
     if (g !== gen) return;
+    if (dest && dest.startsWith('sec/') && part[1] && part[1] !== 'all') curPark = '';
+    if (dest && dest.startsWith('sec/') && (part[2] || (part[1] && part[1] !== 'all'))) curPark = '';
     swap.end();
     if (back != null) restoreScroll(back, g);
   }
@@ -1023,9 +1444,15 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   function refillMerged() {
     if (!on) return;
     const h = location.hash || '';
-    const home = /^#px\/home$/.test(h);
+    const onHome = /^#px\/home$/.test(h);
     const itemPending = /^#px\/item\//.test(h) && !!view.querySelector('.pxvpend');
-    if (!home && !itemPending) return;
+    if (onHome && (homeMem || view.querySelector('.pxstrip, .pxhomehero'))) {
+      const y = main.scrollTop;
+      const g = ++gen;
+      home(g, { force: true, patch: true }).then(() => { if (on) main.scrollTop = y; });
+      return;
+    }
+    if (!itemPending) return;
     const y = main.scrollTop;
     route().then(() => { if (on) main.scrollTop = y; });
   }
@@ -1034,19 +1461,32 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     if (pendTries >= 8) return;
     pendTries++;
     clearTimeout(pendT);
-    pendT = setTimeout(() => { if (g0 === gen && view.querySelector('.pxvpend')) refillMerged(); }, 4000);
+    pendT = setTimeout(() => { if (g0 === gen && view.querySelector('.pxvpend')) refillMerged(); }, 6000);
   }
   if (hooks.listen) hooks.listen('plex-merge-fill', () => { clearTimeout(fillT); fillT = setTimeout(refillMerged, 400); });
   return {
     // Called with each source change: Plex → browse views; demo → app.js views.
     setSource(s) {
-      const was = on, prev = server; srcGen++; on = s && s.kind === 'plex'; server = on ? String(s.server || '') : ''; conn = on ? String(s.connection || '') : '';
+      const was = on, prev = server; srcGen++;
+      const nextOn = !!(s && s.kind === 'plex');
+      const nextServer = nextOn ? String(s.server || '') : '';
+      const switched = was && nextOn && (prev !== nextServer || !!(s && s.reload));
+      if (!nextOn || switched) wipeBrowseCache();
+      on = nextOn; server = nextServer; conn = nextOn ? String(s.connection || '') : '';
       document.body.classList.toggle('plexmode', on); nav.hidden = !on;
-      if (!on) { pkClose(); view.hidden = true; view.textContent = ''; nav.textContent = ''; document.body.classList.remove('pxroute'); if (location.hash.startsWith('#px/')) go('#home'); }
+      if (!on) {
+        pkClose(); view.hidden = true; view.textContent = ''; nav.textContent = ''; navSig = '';
+        document.body.classList.remove('pxroute');
+        invoke('prefs_set', { patch: { homeSnap: '' } }).catch(() => {});
+        if (location.hash.startsWith('#px/')) go('#home');
+        return;
+      }
+      if (switched) invoke('prefs_set', { patch: { homeSnap: '' } }).catch(() => {});
       // Every connect (including a switch to another server) reloads the library list,
       // so the categories never disappear after picking a server.
-      else if (!was || prev !== server || s.reload) { sections = []; loadSections(); if (was && location.hash !== '#px/home') go('#px/home'); else route(); }
+      if (!was || switched) { sections = []; navSig = ''; if (!switched) armSnap(); loadSections(); if (was && location.hash !== '#px/home') go('#px/home'); else route(); }
       else renderNav();
     },
+    onPlaybackEnd() { invalidateHome(); },
   };
 }
