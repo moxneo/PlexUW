@@ -12,7 +12,7 @@ globalThis.navigator ??= { userAgent: 'node' };
 const tmp = join(mkdtempSync(join(tmpdir(), 'pxb-')), 'plex-browse.mjs');
 writeFileSync(tmp, src);
 writeFileSync(join(dirname(tmp), 'px-icons.js'), readFileSync(join(here, '..', 'px-icons.js'), 'utf8'));
-const { missingLibraryText, cwMeter, cardArt, menuOpensUp, paintMode, singleFlight, watchlistBtnState, watchlistFilter, emptyWatchlistText, snapSafe, HOME_TTL_MS } = await import(tmp);
+const { missingLibraryText, cwMeter, cardArt, menuOpensUp, paintMode, singleFlight, watchlistBtnState, watchlistFilter, emptyWatchlistText, snapSafe, HOME_TTL_MS, htpcCommand, browseMove } = await import(tmp);
 const WHY = { unreachable: 'None of this server’s addresses answered.', timeout: 'The server took too long to answer.' };
 const why = e => WHY[String(e)] || 'Something went wrong. Try again.';
 
@@ -341,4 +341,56 @@ test('subtitle control paints a menu, including an empty state, and keeps the ba
   assert.equal(api.pop().hidden, true);
   if (prev === undefined) delete globalThis.document; else globalThis.document = prev;
   assert.equal(made.length, 1);
+});
+
+const key = (k, extra) => Object.assign({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }, extra);
+test('HTPC default keys: browse moves, playback commands, remap hook', () => {
+  assert.equal(htpcCommand(key('ArrowRight')), 'right');
+  assert.equal(htpcCommand(key('ArrowLeft')), 'left');
+  assert.equal(htpcCommand(key('ArrowUp')), 'up');
+  assert.equal(htpcCommand(key('ArrowDown')), 'down');
+  assert.equal(htpcCommand(key('Enter')), 'enter');
+  assert.equal(htpcCommand(key('Escape')), 'back');
+  assert.equal(htpcCommand(key('Backspace')), 'back');
+  assert.equal(htpcCommand(key('b')), 'back');
+  assert.equal(htpcCommand(key('h')), 'home');
+  assert.equal(htpcCommand(key(' ')), 'play_pause');
+  assert.equal(htpcCommand(key('p')), 'play_pause');
+  assert.equal(htpcCommand(key('x')), 'stop');
+  assert.equal(htpcCommand(key('PageUp')), 'seek_backward');
+  assert.equal(htpcCommand(key('PageDown')), 'seek_forward');
+  assert.equal(htpcCommand(key('Home')), 'step_backward');
+  assert.equal(htpcCommand(key('End')), 'step_forward');
+  assert.equal(htpcCommand(key('s')), 'toggle_subtitles');
+  assert.equal(htpcCommand(key('l')), 'cycle_subtitles');
+  assert.equal(htpcCommand(key('l', { ctrlKey: true })), 'cycle_subtitles_back');
+  assert.equal(htpcCommand(key('i')), 'info');
+  assert.equal(htpcCommand(key('w')), 'toggle_watched');
+  assert.equal(htpcCommand(key('z')), 'cycle_aspect_ratio');
+  assert.equal(htpcCommand(key('=')), 'increase_volume');
+  assert.equal(htpcCommand(key('-')), 'decrease_volume');
+  assert.equal(htpcCommand(key('\\')), 'toggle_fullscreen');
+  assert.equal(htpcCommand(key('F11')), 'toggle_fullscreen');
+  assert.equal(htpcCommand(key('f', { ctrlKey: true })), 'search');
+  assert.equal(htpcCommand(key('k', { metaKey: true })), 'search');
+  assert.equal(htpcCommand(key('M', { shiftKey: true })), 'jump+M');
+  assert.equal(htpcCommand(key('ArrowLeft', { altKey: true })), null);
+  assert.equal(htpcCommand(key('p', { ctrlKey: true })), null);
+  assert.equal(htpcCommand(key('p'), { p: '' }), null);
+  assert.equal(htpcCommand(key('p'), { p: 'home' }), 'home');
+  const row = [{ x: 0, y: 0, w: 100, h: 40 }, { x: 120, y: 0, w: 100, h: 40 }, { x: 240, y: 0, w: 100, h: 40 }];
+  const grid = row.concat([{ x: 0, y: 80, w: 100, h: 40 }, { x: 120, y: 80, w: 100, h: 40 }]);
+  assert.equal(browseMove(row, 0, 'right'), 1);
+  assert.equal(browseMove(row, 1, 'left'), 0);
+  assert.equal(browseMove(row, 0, 'left'), -1);
+  assert.equal(browseMove(grid, 0, 'down'), 3);
+  assert.equal(browseMove(grid, 4, 'up'), 1);
+  assert.equal(browseMove(grid, 1, 'left'), 0);
+  const app = readFileSync(join(here, '..', '..', '..', 'app.js'), 'utf8');
+  for (const name of ['play_pause', 'seek_backward', 'seek_forward', 'step_backward', 'step_forward', 'toggle_subtitles', 'cycle_subtitles', 'increase_volume', 'decrease_volume']) {
+    assert.match(app, new RegExp(name));
+  }
+  assert.match(src, /a\.dataset\.label = label/);
+  assert.doesNotMatch(src, /dataset\.label = label \+/);
+  assert.doesNotMatch(src, /data-label.*Ctrl|aria-label', label \+/);
 });

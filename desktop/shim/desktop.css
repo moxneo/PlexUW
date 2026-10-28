@@ -115,6 +115,7 @@ body.navc #pxNav{align-items:center}body.navc #pxNav a{width:3rem;height:2.75rem
   a.card.pxcard:hover{transform:none;box-shadow:none}
   a.card.pxcard:hover .poster,.pxchup a.up:hover .poster,.pxpin a.up:hover .poster{box-shadow:inset 0 0 0 1px rgba(255,255,255,.55)}
 }
+a.pxcard:focus-visible .poster,button.pxresume:focus-visible{box-shadow:inset 0 0 0 2px #e5a00d}
 .pxpbtn{display:inline-flex;align-items:center;gap:8px}.pxpbtn .ic{width:16px;height:16px}.pxpbtn.on{background:rgba(229,160,13,.18);border-color:rgba(229,160,13,.6)}
 /* side panels: prototype .panel design (glass, hairline, sheet easing); content shifts */
 .pxshell{--pw:min(22rem,30vw);display:grid;grid-template-columns:0 minmax(0,1fr) 0;transition:grid-template-columns var(--dur-sheet,320ms) var(--sheet,cubic-bezier(.32,.72,0,1))}

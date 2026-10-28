@@ -455,15 +455,114 @@ function renderTV([view,a,b]){const el=$('#tvView'),v=a&&decodeURIComponent(a);
 $('#tvnext').innerHTML=TV.map(s=>{const eps=s.seasons.flatMap(x=>x.episodes),w=eps.filter(e=>e.watched).length,n=eps.find(e=>!e.watched);
   return w&&n?`<button class="card tvn" data-id="${n.id}"><div class="poster" style="background-image:${art({...n,title:s.title},320,180)}"><span class="sxe">S${n.season} E${n.episode}</span></div><div class="pbar"><i style="width:${w/eps.length*100}%"></i></div><div class="meta"><div class="t">${esc(s.title)}</div><div class="small">S${n.season}E${n.episode} · ${esc(n.title)}</div><div class="muted small">${w} of ${eps.length} watched · ${n.mins} min</div></div></button>`:''}).join('');
 addEventListener('hashchange',route);route();
+// Playback keys follow the HTPC command names from htpcCommand (plex-browse.js).
+// shortcut: A stays Ambient — the chrome button is labeled (A), and there is no
+// in-stream audio cycle (the title More menu picks audio before play). HTPC's
+// cycle_audio is that menu. U and D stay Up Next and Info. Escape keeps the
+// exit sheet in the desktop shell (it intercepts Escape before this ladder).
+function subState(){
+  const ctx=plexNow()?plexCtx():{};
+  const subs=Array.isArray(ctx.subs)?ctx.subs.filter(s=>s&&typeof s.i==='number'):[];
+  const curI=Number.isInteger(ctx.subIndex)?ctx.subIndex:-1;
+  return {subs,curI};
+}
+function applySub(index){
+  if(!(plexNow()&&typeof window.__pxPickSub==='function'))return false;
+  const {subs,curI}=subState();
+  const next=index==null||index<0?-1:index;
+  if(next===curI)return true;
+  const hit=subs.find(s=>s.i===next);
+  window.__pxPickSub(next<0?null:next);
+  if(bCc)bCc.classList.toggle('on',next>=0);
+  toast(next<0?'Subtitles off':((hit&&hit.label)||'Subtitles'));
+  return true;
+}
+function toggleSubs(){
+  const {subs,curI}=subState();
+  if(plexNow()&&typeof window.__pxPickSub==='function'&&(subs.length||curI>=0)){
+    applySub(curI>=0?-1:(subs[0]?subs[0].i:-1));
+    return;
+  }
+  const info=ccList();
+  if(info.kind==='text'&&info.tracks.length){
+    if(info.cur>=0)info.tracks.forEach(t=>{t.mode='disabled'});
+    else info.tracks[0].mode='showing';
+    if(bCc)bCc.classList.toggle('on',info.cur<0);
+    toast(info.cur>=0?'Subtitles off':(info.tracks[0].label||'Subtitles'));
+    return;
+  }
+  if(bCc)bCc.click();
+}
+function cycleSubs(dir){
+  const {subs,curI}=subState();
+  if(subs.length&&plexNow()){
+    const ids=[-1,...subs.map(s=>s.i)];
+    let i=ids.indexOf(curI); if(i<0)i=0;
+    applySub(ids[(i+(dir<0?-1:1)+ids.length)%ids.length]);
+    return;
+  }
+  toggleSubs();
+}
+function stepMark(dir){
+  const d=dur()||0, ch=(cur&&cur.chapters)||[];
+  if(d>0&&ch.length>1){
+    const t=vid.currentTime||0;
+    if(dir>0){const n=ch.find(c=>c.at*d>t+1.5); if(n){vid.currentTime=n.at*d; if(n.t)toast(n.t); return;}}
+    else{const prev=[...ch].reverse().find(c=>c.at*d<t-1.5); if(prev){vid.currentTime=prev.at*d; if(prev.t)toast(prev.t); return;} if(t>1.5){vid.currentTime=0; return;}}
+  }
+  skip(dir*600);
+}
+function bumpVol(delta){showUI(); const base=volMute?Math.max(volLevel,0.05):volLevel; setVol(base+delta, base+delta<=0.01);}
+function localPlayCmd(e){
+  if(e.ctrlKey||e.metaKey||e.altKey)return null;
+  const k=e.key;
+  if(k===' '||k==='p'||k==='P')return 'play_pause';
+  if(k==='ArrowLeft')return 'left'; if(k==='ArrowRight')return 'right';
+  if(k==='ArrowUp')return 'up'; if(k==='ArrowDown')return 'down';
+  if(k==='PageUp')return 'seek_backward'; if(k==='PageDown')return 'seek_forward';
+  if(k==='Home')return 'step_backward'; if(k==='End')return 'step_forward';
+  if(k==='f'||k==='F'||k==='\\'||k==='F11')return 'toggle_fullscreen';
+  if(k==='z'||k==='Z')return 'cycle_aspect_ratio';
+  if(k==='i'||k==='I')return 'info';
+  if(k==='s'||k==='S')return 'toggle_subtitles';
+  if(k==='l'||k==='L')return 'cycle_subtitles';
+  if(k==='x'||k==='X')return 'stop';
+  if(k==='b'||k==='B'||k==='Backspace')return 'back';
+  if(k==='='||k==='+')return 'increase_volume';
+  if(k==='-'||k==='_')return 'decrease_volume';
+  return null;
+}
 addEventListener('keydown',e=>{
   if(!ask.hidden){if(e.key==='Escape'||e.key==='Enter')closeAsk();return;}
-  if($('#player').hidden||e.target.tagName==='INPUT'&&e.target.type!=='range')return;const k=e.key.toLowerCase();
-  if(k===' '){e.preventDefault();$('#play').click();showUI();}
-  else if(['z','a','arrowleft','arrowright','d','u','i'].includes(k)){showUI();if(k==='z')cycle();else if(k==='a')togAmb();else if(k==='arrowleft')skip(-10);else if(k==='arrowright')skip(10);else if(k==='d'||k==='i')toggle('#pDetails');else toggle('#pUpnext');}
-  else if(k==='z')cycle();else if(k==='a')togAmb();else if(k==='f')$('#bF').click();
-  else if(k==='arrowleft')$('#rew').click();else if(k==='arrowright')$('#fwd').click();
-  else if(k==='d')toggle('#pDetails');else if(k==='u')toggle('#pUpnext');
-  else if(k==='escape'){if(String(location.hash||'').indexOf('#player/plex')===0){goBackFromPlayer();return;}if(!$('#apCard').hidden){apCancel();return;}const top=openOrder.at(-1);if(top&&$(top).classList.contains('open')){toggle(top,false);}else if((edgeTop||edgeBot||dwell.top.hold||dwell.bot.hold||kbd)&&!vid.paused&&!pin){hideChromeNow();}else goBackFromPlayer();}});
+  if(!$('#voice').hidden)return;
+  if($('#player').hidden)return;
+  const tag=e.target&&e.target.tagName;
+  if((tag==='INPUT'&&e.target.type!=='range')||tag==='TEXTAREA'||tag==='SELECT')return;
+  if(e.target&&(e.target.id==='volWedge'||(e.target.closest&&e.target.closest('.panel.open,#ccPop,#gearMenu,#pxEsc'))))return;
+  const sheet=document.getElementById('pxEsc'); if(sheet&&!sheet.hidden)return;
+  if(e.key==='Escape'){if(String(location.hash||'').indexOf('#player/plex')===0){goBackFromPlayer();return;}if(!$('#apCard').hidden){apCancel();return;}const top=openOrder.at(-1);if(top&&$(top).classList.contains('open')){toggle(top,false);}else if((edgeTop||edgeBot||dwell.top.hold||dwell.bot.hold||kbd)&&!vid.paused&&!pin){hideChromeNow();}else goBackFromPlayer();return;}
+  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&(e.key==='u'||e.key==='U')){e.preventDefault();showUI();toggle('#pUpnext');return;}
+  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&(e.key==='d'||e.key==='D')){e.preventDefault();showUI();toggle('#pDetails');return;}
+  // shortcut: labeled Ambient (A) wins over HTPC cycle_audio. See the note above.
+  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey&&(e.key==='a'||e.key==='A')){e.preventDefault();showUI();togAmb();return;}
+  const act=typeof window.__pxHtpcCommand==='function'?window.__pxHtpcCommand(e):localPlayCmd(e);
+  if(!act)return;
+  if(act==='play_pause'){e.preventDefault();$('#play').click();showUI();}
+  else if(act==='left'||act==='seek_backward'){e.preventDefault();showUI();skip(-10);}
+  else if(act==='right'||act==='seek_forward'){e.preventDefault();showUI();skip(10);}
+  else if(act==='up'||act==='increase_volume'){e.preventDefault();bumpVol(0.05);}
+  else if(act==='down'||act==='decrease_volume'){e.preventDefault();bumpVol(-0.05);}
+  else if(act==='step_backward'){e.preventDefault();showUI();stepMark(-1);}
+  else if(act==='step_forward'){e.preventDefault();showUI();stepMark(1);}
+  else if(act==='cycle_aspect_ratio'){e.preventDefault();showUI();cycle();}
+  else if(act==='toggle_fullscreen'){e.preventDefault();$('#bF').click();}
+  else if(act==='info'){e.preventDefault();showUI();toggle('#pDetails');}
+  else if(act==='toggle_subtitles'){if(!$('#skipBtn').hidden)return;e.preventDefault();showUI();toggleSubs();}
+  else if(act==='cycle_subtitles'){e.preventDefault();showUI();cycleSubs(1);}
+  else if(act==='cycle_subtitles_back'){e.preventDefault();showUI();cycleSubs(-1);}
+  else if(act==='stop'||act==='back'){e.preventDefault();goBackFromPlayer();}
+  else if(act==='home'){e.preventDefault();const plex=String(location.hash||'').indexOf('#player/plex')===0||(cur&&cur.id==='plex');goBackFromPlayer();if(plex&&location.hash!=='#px/home')location.hash='#px/home';}
+});
 
 // ---------- Settings: AI Provider (BYO key). Key lives only in localStorage; never logged or put in URLs. ----------
 const AIP={xai:{name:"xAI Grok",base:"https://api.x.ai/v1",model:"grok-4"},openai:{name:"OpenAI",base:"https://api.openai.com/v1",model:"gpt-4o-mini"},

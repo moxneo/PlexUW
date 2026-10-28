@@ -201,6 +201,76 @@ export function navInput(e) {
   if (e.type === 'mouseup' || e.type === 'mousedown' || e.type === 'auxclick') return e.button === 3 ? 'back' : e.button === 4 ? 'fwd' : null;
   return null;
 }
+// Plex HTPC default keyboard (inputmaps/default/keyboard.json lineage: arrows move,
+// Enter selects, Esc/Backspace/B go back, H home, Space/P play-pause, Left/Right seek
+// while playing, PgUp/PgDown seek 10s, Home/End step a chapter or 10 minutes,
+// S toggles subtitles, L cycles them, I info, Z aspect, +/- volume, \ and F11 fullscreen).
+// shortcut: per-customer remap is window.__pxBind, a map of event.key → command
+// ('' disables that key). Alt+Left/Right stay history. No settings UI yet.
+// Nav tooltips read data-label only — never put a key name there.
+const HTPC_CMD = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  Enter: 'enter', Escape: 'back', Backspace: 'back', ' ': 'play_pause',
+  p: 'play_pause', P: 'play_pause', x: 'stop', X: 'stop',
+  b: 'back', B: 'back', h: 'home', H: 'home',
+  s: 'toggle_subtitles', S: 'toggle_subtitles',
+  l: 'cycle_subtitles', L: 'cycle_subtitles',
+  a: 'cycle_audio', A: 'cycle_audio',
+  i: 'info', I: 'info', w: 'toggle_watched', W: 'toggle_watched',
+  z: 'cycle_aspect_ratio', Z: 'cycle_aspect_ratio',
+  PageUp: 'seek_backward', PageDown: 'seek_forward',
+  Home: 'step_backward', End: 'step_forward',
+  F11: 'toggle_fullscreen', '\\': 'toggle_fullscreen',
+  f: 'toggle_fullscreen', F: 'toggle_fullscreen',
+  '=': 'increase_volume', '+': 'increase_volume',
+  '-': 'decrease_volume', _: 'decrease_volume',
+};
+export function htpcCommand(e, bind) {
+  if (!e || !e.key || e.isComposing) return null;
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return null;
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K' || e.key === 'f' || e.key === 'F')) return 'search';
+  if (ctrl && !e.altKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) return 'cycle_subtitles_back';
+  if (e.altKey && !ctrl && !e.shiftKey && e.key === 'Enter') return 'toggle_fullscreen';
+  if (ctrl || e.altKey) return null;
+  const over = bind || (typeof window !== 'undefined' && window.__pxBind) || null;
+  if (over && Object.prototype.hasOwnProperty.call(over, e.key)) {
+    const v = over[e.key];
+    return typeof v === 'string' && v ? v : null;
+  }
+  if (e.shiftKey && /^[a-zA-Z]$/.test(e.key)) return 'jump+' + e.key.toUpperCase();
+  return HTPC_CMD[e.key] || null;
+}
+// Directional move across browse targets. items are {x,y,w,h}. Prefers the same
+// row or column, then any target in that direction. -1 means stay put.
+export function browseMove(items, from, dir) {
+  if (!items || !items.length || from < 0 || from >= items.length) return -1;
+  if (dir !== 'left' && dir !== 'right' && dir !== 'up' && dir !== 'down') return -1;
+  const c = i => ({ x: items[i].x + items[i].w / 2, y: items[i].y + items[i].h / 2 });
+  const a = c(from);
+  const horiz = dir === 'left' || dir === 'right';
+  const pick = cone => {
+    let best = -1, score = Infinity;
+    for (let i = 0; i < items.length; i++) {
+      if (i === from) continue;
+      const b = c(i);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      let ok = false, primary = 0, secondary = 0;
+      if (dir === 'left') { ok = dx < -1; primary = -dx; secondary = Math.abs(dy); }
+      else if (dir === 'right') { ok = dx > 1; primary = dx; secondary = Math.abs(dy); }
+      else if (dir === 'up') { ok = dy < -1; primary = -dy; secondary = Math.abs(dx); }
+      else { ok = dy > 1; primary = dy; secondary = Math.abs(dx); }
+      if (!ok) continue;
+      if (cone && secondary > Math.max(56, primary * cone)) continue;
+      const s = primary + secondary * (horiz ? 4 : 3);
+      if (s < score) { score = s; best = i; }
+    }
+    return best;
+  };
+  const hit = pick(horiz ? 2.4 : 1.15);
+  return hit >= 0 ? hit : pick(0);
+}
+if (typeof window !== 'undefined') window.__pxHtpcCommand = htpcCommand;
 // fu7f: keep the old page on screen while the next one loads (no black flash, no raw text):
 // begin() moves the current page into a fixed snapshot layer over the scroller; end() fades it out.
 // An inline opacity lock is not enough. The shelf rule is `.pxfade { opacity:0; transition:.28s }`
@@ -596,7 +666,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   }
 
   // Sidebar: icon + label so the links survive the collapsed (72px) rail at <1600px.
-  function navLink(label, hash, r, ic) { const a = el('a'); a.href = hash; a.dataset.r = r; a.dataset.label = label; a.setAttribute('aria-label', label); a.appendChild(pxIcon(ic)); a.appendChild(el('span', null, label)); return a; }
+  function navLink(label, hash, r, ic) {
+    const a = el('a'); a.href = hash; a.dataset.r = r;
+    // Tooltip text is the destination name only. Key names stay off data-label.
+    a.dataset.label = label; a.setAttribute('aria-label', label);
+    a.appendChild(pxIcon(ic)); a.appendChild(el('span', null, label)); return a;
+  }
   let conn = '', navState = 'ok';
   function loadSections() {
     // srcGen: a reply from the previous server (or from before the pick) must never
@@ -1429,9 +1504,101 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   addEventListener('keydown', e => {
     if (!on) return;
     const nd = navInput(e); if (nd && !pm.isOpen && pk.hidden && navGo(nd)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); e.stopImmediatePropagation(); if (pk.hidden) pkOpen(); else if (Date.now() - pkAt > 400) pkClose(); }
+    const chord = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key.toLowerCase() === 'k' || e.key.toLowerCase() === 'f');
+    if (chord) { e.preventDefault(); e.stopImmediatePropagation(); if (pk.hidden) pkOpen(); else if (Date.now() - pkAt > 400) pkClose(); }
     else if (e.key === 'Escape' && !pk.hidden) { e.preventDefault(); e.stopImmediatePropagation(); pkClose(); }
   }, true);
+  const BROWSE_SEL = '#pxNav a[href], #pxView a.pxcard:not(.pxph), #pxView a.pxhtitle, #pxView button.pxresume, #pxView .pxround button:not([disabled]), #pxView .pxtabs a[href], #pxView .pxtabs button, #pxView a.pxtile, #pxView a.pxsee, #pxView button.pxazb:not([disabled]), #pxView a.pxcred, #pxView button.pxchuph';
+  const typing = t => !!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable));
+  const browseTargets = () => [...document.querySelectorAll(BROWSE_SEL)].filter(el => {
+    if (el.closest('[hidden]')) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1;
+  });
+  const focusEl = el => {
+    if (!el || !el.focus) return;
+    try { el.focus({ preventScroll: true }); } catch (err) { try { el.focus(); } catch (e2) { /* not focusable */ } }
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
+  const firstContent = list => list.find(el => el.classList && el.classList.contains('pxresume'))
+    || list.find(el => el.classList && el.classList.contains('pxcard') && view.contains(el))
+    || list.find(el => view.contains(el))
+    || list[0];
+  addEventListener('keydown', e => {
+    if (!on || pm.isOpen || !pk.hidden) return;
+    if (typing(e.target)) return;
+    const player = document.getElementById('player');
+    if (player && !player.hidden) return;
+    const ask = document.getElementById('ask'), pal = document.getElementById('pal'), voice = document.getElementById('voice');
+    if ((ask && !ask.hidden) || (pal && !pal.hidden) || (voice && !voice.hidden)) return;
+    const cmd = htpcCommand(e);
+    if (!cmd) return;
+    const menu = view.querySelector('.pxfeatmenu:not([hidden])');
+    if (menu) {
+      if (cmd === 'back') {
+        e.preventDefault(); menu.hidden = true;
+        const opener = menu.parentElement && menu.parentElement.querySelector('button');
+        if (opener) opener.setAttribute('aria-expanded', 'false');
+        if (opener) focusEl(opener);
+      } else if (cmd === 'up' || cmd === 'down') {
+        const bs = [...menu.querySelectorAll('button')];
+        if (!bs.length) return;
+        let i = bs.indexOf(document.activeElement);
+        i = cmd === 'down' ? Math.min(bs.length - 1, (i < 0 ? -1 : i) + 1) : Math.max(0, i < 0 ? 0 : i - 1);
+        e.preventDefault(); focusEl(bs[i]);
+      }
+      return;
+    }
+    if (e.repeat && cmd !== 'left' && cmd !== 'right' && cmd !== 'up' && cmd !== 'down') return;
+    if (cmd === 'back') {
+      e.preventDefault();
+      if (sm.index > 0) history.back();
+      else if ((location.hash || '') !== '#px/home') location.hash = '#px/home';
+      return;
+    }
+    if (cmd === 'home') { e.preventDefault(); if ((location.hash || '') !== '#px/home') location.hash = '#px/home'; return; }
+    if (cmd === 'toggle_watched') {
+      const mk = [...view.querySelectorAll('button')].find(b => /mark (un)?watched/i.test(b.getAttribute('aria-label') || ''));
+      if (mk) { e.preventDefault(); mk.click(); }
+      return;
+    }
+    if (cmd.indexOf('jump+') === 0) {
+      const letter = cmd.slice(5);
+      const b = [...view.querySelectorAll('button.pxazb')].find(x => (x.textContent || '').trim() === letter && !x.disabled);
+      if (b) { e.preventDefault(); b.click(); }
+      return;
+    }
+    if (cmd === 'play_pause') {
+      const ae = document.activeElement;
+      if (ae && ae.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Spacebar')) return;
+      e.preventDefault();
+      if (ae && ae.tagName === 'BUTTON' && (view.contains(ae) || nav.contains(ae))) { ae.click(); return; }
+      const card = ae && ae.closest && ae.closest('a.pxcard');
+      if (card && view.contains(card)) { card.click(); return; }
+      const labeled = [...view.querySelectorAll('button')].find(b => /^(Resume|Play)\b/i.test((b.getAttribute('aria-label') || b.textContent || '').trim()));
+      if (labeled) { labeled.click(); return; }
+      const list = browseTargets(); if (list.length) focusEl(firstContent(list));
+      return;
+    }
+    if (cmd === 'enter') {
+      const ae = document.activeElement;
+      if (ae && (view.contains(ae) || nav.contains(ae)) && (ae.tagName === 'A' || ae.tagName === 'BUTTON')) return;
+      const list = browseTargets(); if (!list.length) return;
+      e.preventDefault(); focusEl(firstContent(list));
+      return;
+    }
+    if (cmd === 'left' || cmd === 'right' || cmd === 'up' || cmd === 'down') {
+      const list = browseTargets(); if (!list.length) return;
+      const ae = document.activeElement;
+      let i = list.indexOf(ae);
+      if (i < 0 && ae && ae.closest) i = list.indexOf(ae.closest(BROWSE_SEL));
+      e.preventDefault();
+      if (i < 0) { focusEl(firstContent(list)); return; }
+      const boxes = list.map(el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+      const n = browseMove(boxes, i, cmd);
+      if (n >= 0) focusEl(list[n]);
+    }
+  });
   addEventListener('click', e => { if (on && e.target.closest && e.target.closest('#askBtn')) { e.preventDefault(); e.stopImmediatePropagation(); pkOpen(); } }, true);
   main.addEventListener('scroll', () => { if (!swap.active) sm.save(); if (onScroll) onScroll(); }, { passive: true });
   addEventListener('resize', () => { if (on) view.querySelectorAll('.pxstrip').forEach(syncArrows); if (onScroll && on) onScroll(true); });
