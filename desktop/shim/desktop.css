@@ -222,14 +222,14 @@ body.plexmode #nav,body.plexmode .side-foot,.pxprof{display:none!important}
 @media (max-width:1599px){
  .sidebar{width:72px;padding:12px 0;gap:8px;align-items:center}
  .brand{flex-direction:column;gap:4px;width:44px}.brand .logo .pxi{width:28px;height:28px}
- #pxNav{align-items:center;gap:4px;width:44px}#pxNav a{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;gap:0}#pxNav a .pxi{width:24px;height:24px}
+ #pxNav{align-items:center;gap:4px;width:44px}#pxNav a{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;gap:0}#pxNav a .pxi{width:22px;height:22px}
  #pxNav .navh{font-size:0;height:1px;padding:0;background:rgba(255,255,255,.1);width:28px;margin:8px auto}
  #pxNav .pxnavset::before{left:8px;right:8px}
  .profile{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;display:flex}
 }
 body.navc .sidebar{width:72px;padding:12px 0;gap:8px;align-items:center}
 body.navc .brand{flex-direction:column;gap:4px;width:44px}body.navc .navtog{margin:0;order:0}
-body.navc #pxNav{align-items:center;gap:4px;width:44px}body.navc #pxNav a{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;gap:0}body.navc #pxNav a .pxi{width:24px;height:24px}
+body.navc #pxNav{align-items:center;gap:4px;width:44px}body.navc #pxNav a{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;gap:0}body.navc #pxNav a .pxi{width:22px;height:22px}
 body.navc #pxNav .navh{font-size:0;height:1px;padding:0;background:rgba(255,255,255,.1);width:28px;margin:8px auto}
 body.navc #pxNav .pxnavset::before{left:8px;right:8px}
 body.navc .profile{width:44px;height:44px;min-height:44px;padding:0;justify-content:center}
@@ -295,7 +295,7 @@ body.desktop .askbtn kbd{font:600 11px/1 inherit;padding:4px 6px;border-radius:5
 #nav a .pxi{width:22px;height:22px;flex:none}
 #nav a.pxini{position:relative}
 #nav a.pxini::before{content:attr(data-ini);position:absolute;left:22px;top:50%;transform:translateY(2px);font:700 9px/1 system-ui,sans-serif;color:#FF7A1A;background:#121419;border-radius:3px;padding:1px 2px;pointer-events:none}
-body.navc #nav a .pxi{width:24px;height:24px}
+body.navc #nav a .pxi{width:22px;height:22px}
 body.navc #nav a.pxini::before{left:auto;right:6px;top:auto;bottom:5px;transform:none}
 /* FU7: below 1600px the rail toggle opens the full rail as an overlay (labels shown). */
 @media (max-width:1599px){
@@ -364,9 +364,15 @@ a.pxcred:focus-visible i,button.pxcred:focus-visible i{outline:3px solid #e5a00d
 /* fu7f: popover/person page share the title page's dimmed backdrop (.pxbackdrop gradient). */
 .pxpmd{isolation:isolate}.pxpmd>.pxbackdrop{position:absolute;inset:0;z-index:-1;border-radius:inherit}
 .pxpmd>.pxbackdrop img{opacity:.28}
-/* fu7f: page swap. The old page stays as a fixed snapshot until the next one is ready, then fades. */
-.pxghost{position:fixed;z-index:4;overflow:hidden;pointer-events:none;background:#0e0e10;opacity:1;transition:opacity .18s ease}
-.pxghost.out{opacity:0}.pxghosti{position:relative;box-sizing:border-box}.pxghost .pxbackdrop{position:absolute}
+/* fu7f: page swap. The old page stays as a fixed snapshot until the next one is ready, then fades.
+   The fanart stays position:fixed on the viewport. Parking it as absolute inside the content-sized
+   snapshot recropped the cover (a resize flash through the glass rail). The clip wrapper hides the
+   scrolled page; the ghost itself does not clip, so the fanart still paints under the rail. */
+.pxghost{position:fixed;z-index:4;overflow:visible;pointer-events:none;background:#0e0e10;opacity:1;transition:opacity .18s ease}
+.pxghost.out{opacity:0}
+.pxghostclip{position:absolute;inset:0;overflow:hidden}
+.pxghosti{position:relative;box-sizing:border-box}
+.pxghost .pxbackdrop{position:fixed;inset:0;width:100vw;height:100vh}
 /* fu7f: styled loading skeleton (never raw text). */
 .pxload{display:flex;flex-direction:column;gap:12px;padding:32px 0;max-width:760px}
 .pxload .pxsk{display:block;height:18px;border-radius:6px;background:linear-gradient(100deg,#1a1d24 40%,#232733 50%,#1a1d24 60%) 0 0/200% 100%;animation:pxshim 1.4s linear infinite}
@@ -525,3 +531,89 @@ body.plexmode #setView .setcard h3{color:#fff}
 body.plexmode #setView .muted,
 body.plexmode #setView .note,
 body.plexmode #setView .frow label{color:#d5dae3}
+
+/* Nav rail: one icon size, one left anchor. Expanded and collapsed share the
+   same 72px icon column; only the sidebar width changes, so labels appear
+   without the glyphs growing or sliding as the bar collapses. */
+body.desktop{--rail:72px;--rail-icon:22px}
+body.desktop .sidebar,
+body.desktop.navc .sidebar{padding:12px 0;gap:8px;align-items:stretch}
+body.desktop .sidebar .brand,
+body.desktop.navc .sidebar .brand{
+  display:grid;grid-template-columns:var(--rail) minmax(0,1fr);align-items:center;
+  width:100%;min-height:44px;gap:0;font-size:1.125rem;flex-direction:row;
+}
+body.desktop .sidebar .brand .logo,
+body.desktop.navc .sidebar .brand .logo{width:var(--rail);height:44px;display:grid;place-items:center}
+body.desktop .sidebar .brand .logo .pxi{width:28px;height:28px}
+body.desktop .sidebar .brand .brandname{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+body.desktop #pxNav,
+body.desktop.navc #pxNav{align-items:stretch;width:100%;gap:4px}
+body.desktop #pxNav a,
+body.desktop.navc #pxNav a,
+body.desktop #nav a,
+body.desktop.navc #nav a{
+  display:grid;grid-template-columns:var(--rail) minmax(0,1fr);align-items:center;justify-content:stretch;
+  width:100%;height:44px;min-height:44px;padding:0;gap:0;box-sizing:border-box;
+}
+body.desktop #pxNav a .pxi,
+body.desktop.navc #pxNav a .pxi,
+body.desktop #nav a .pxi,
+body.desktop.navc #nav a .pxi,
+body.desktop #nav a .ic,
+body.desktop.navc #nav a .ic{width:var(--rail-icon);height:var(--rail-icon);justify-self:center;flex:none}
+body.desktop #pxNav a span,
+body.desktop #nav a span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+body.desktop #pxNav .navh,
+body.desktop.navc #pxNav .navh{
+  display:grid;grid-template-columns:var(--rail) minmax(0,1fr);align-items:center;
+  width:auto;height:28px;margin:4px 0;padding:0;background:none;font-size:12px;color:#8a92a5;
+  overflow:hidden;box-sizing:border-box;
+}
+body.desktop #pxNav .navh::before,
+body.desktop.navc #pxNav .navh::before{content:"";width:28px;height:1px;justify-self:center;background:rgba(255,255,255,.1)}
+body.desktop .profile,
+body.desktop.navc .profile{
+  display:grid;grid-template-columns:var(--rail) minmax(0,1fr);align-items:center;
+  width:100%;height:52px;min-height:52px;padding:0;justify-content:stretch;box-sizing:border-box;
+  border:0;border-top:var(--hairline);
+}
+body.desktop .profile .pxrailav:not([hidden]),
+body.desktop.navc .profile .pxrailav:not([hidden]),
+body.desktop.navo .profile .pxrailav:not([hidden]){
+  display:grid!important;grid-column:1;justify-self:center;align-self:center;width:32px;height:32px;
+}
+body.desktop .profile .pn,
+body.desktop.navc .profile .pn,
+body.desktop.navo .profile .pn{
+  display:flex!important;position:static!important;grid-column:2;min-width:0;overflow:hidden;
+  padding:0;background:none;border:0;box-shadow:none;
+}
+body.desktop .profile .pxwho > .av{display:none!important}
+body.desktop .profile .pxname{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+@media (max-width:1599px){
+  /* Overlay grows to the right from the same top as the in-flow rail (under the
+     title bar). top:0 lifted every icon by the title-bar height. */
+  body.desktop.navo .sidebar{top:44px!important;bottom:0!important;padding:12px 0!important;align-items:stretch!important}
+  body.desktop.fs.navo .sidebar,
+  body.desktop.inplayer.navo .sidebar{top:0!important}
+  body.desktop.navo .brand{display:grid!important;grid-template-columns:var(--rail) minmax(0,1fr)!important;width:100%!important;flex-direction:row!important;gap:0!important}
+  body.desktop.navo #pxNav,
+  body.desktop.navo nav{align-items:stretch!important;width:100%!important}
+  body.desktop.navo #pxNav a,
+  body.desktop.navo nav a{
+    display:grid!important;grid-template-columns:var(--rail) minmax(0,1fr)!important;
+    width:100%!important;height:44px!important;padding:0!important;gap:0!important;justify-content:stretch!important;
+  }
+  body.desktop.navo #pxNav a .pxi,
+  body.desktop.navo nav a .pxi,
+  body.desktop.navo nav a .ic{width:22px!important;height:22px!important}
+  body.desktop.navo #pxNav a span,
+  body.desktop.navo nav a span{position:static!important;width:auto!important;height:auto!important;clip:auto!important}
+  body.desktop.navo #pxNav .navh,
+  body.desktop.navo nav .navh{
+    display:grid!important;grid-template-columns:var(--rail) minmax(0,1fr)!important;
+    height:28px!important;width:auto!important;margin:4px 0!important;padding:0!important;
+    font-size:12px!important;background:none!important;color:#8a92a5!important;
+  }
+}

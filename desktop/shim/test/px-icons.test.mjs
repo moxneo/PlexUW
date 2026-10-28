@@ -24,7 +24,9 @@ test('stroke-based, accent #FF7A1A, 44px hit targets, 22–24px icons', () => {
   assert.match(css, /\.pxi \.pxia\{stroke:#FF7A1A\}/);
   assert.match(css, /#pxNav a\{min-height:44px/);
   assert.match(css, /#pxNav a \.pxi\{width:22px;height:22px\}/);
-  assert.match(css, /#pxNav a\{width:44px;height:44px[^}]*\}#pxNav a \.pxi\{width:24px;height:24px\}/);
+  assert.match(css, /#pxNav a\{width:44px;height:44px[^}]*\}#pxNav a \.pxi\{width:22px;height:22px\}/);
+  assert.match(css, /--rail:72px;--rail-icon:22px/);
+  assert.doesNotMatch(css, /#pxNav a \.pxi\{width:24px/);
 });
 test('plex mode: no pxprof button; the legacy rail profile and side-foot are hidden', () => {
   assert.doesNotMatch(browse, /el\('button', 'pxprof'\)/);

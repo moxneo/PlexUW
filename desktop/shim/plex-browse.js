@@ -168,11 +168,20 @@ export function pageSwap({ doc, scroller, view, host, fadeMs = 180 }) {
       // Same box as the live view: below the top bar (where the next page starts), same width/padding.
       const vr = view.getBoundingClientRect ? view.getBoundingClientRect() : { top: r.top - scroller.scrollTop, left: r.left, width: r.width };
       const gt = Math.max(r.top, vr.top + scroller.scrollTop); g.style.top = gt + 'px'; g.style.height = Math.max(0, r.top + r.height - gt) + 'px';
+      const clip = doc.createElement('div'); clip.className = 'pxghostclip';
       const inner = doc.createElement('div'); inner.className = 'pxghosti'; inner.style.transform = 'translateY(' + (vr.top - gt) + 'px)';
       inner.style.marginLeft = (vr.left - r.left) + 'px'; if (vr.width) inner.style.width = vr.width + 'px';
       const cs = doc.defaultView && doc.defaultView.getComputedStyle ? doc.defaultView.getComputedStyle(view) : null; if (cs) inner.style.padding = cs.padding;
-      while (view.firstChild) { const c = view.firstChild; (c.classList && c.classList.contains('pxbackdrop') ? g : inner).appendChild(c); }
-      g.appendChild(inner); (host || doc.body).appendChild(g); ghost = g;
+      while (view.firstChild) {
+        const c = view.firstChild;
+        if (c.classList && c.classList.contains('pxbackdrop')) {
+          // Lock the cover to the viewport box. A content-sized absolute box recrops it.
+          c.style.position = 'fixed'; c.style.top = '0'; c.style.right = '0'; c.style.bottom = '0'; c.style.left = '0';
+          c.style.width = '100vw'; c.style.height = '100vh';
+          g.appendChild(c);
+        } else inner.appendChild(c);
+      }
+      clip.appendChild(inner); g.appendChild(clip); (host || doc.body).appendChild(g); ghost = g;
       clearTimeout(t); t = setTimeout(() => this.end(), 30000); // safety net; route() normally ends it
     },
     end() {
@@ -393,7 +402,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   }
   // Movies/TV hubs share Home's cache. Warm them when the library list arrives so a click is not a cold wait.
   function warmLibs() { sections.forEach(s => { if (s.kind === 'movie' || s.kind === 'show') invoke('browse_section_hubs', { id: String(s.id) }).catch(() => {}); }); }
+  let navSig = '';
   function renderNav() {
+    // Same libraries: keep the rail nodes. Rebuilding them on every Home visit flashed the row backgrounds.
+    const sig = navState + '\n' + sections.map(s => String(s.id) + '\t' + (s.kind || '') + '\t' + (s.title || '')).join('\n');
+    if (sig === navSig && nav.childElementCount) { mark(cur); return; }
+    navSig = sig;
     nav.textContent = '';
     // fu6: the name lives only on the bottom profile card; switching lives in Profile → Switch server.
     // FU7: no server picker in the rail; versions on the title page replace it.

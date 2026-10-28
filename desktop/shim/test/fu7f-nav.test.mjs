@@ -78,7 +78,8 @@ test('fu7f page swap: the old page stays visible during navigation and no raw lo
   const g = doc.body.children[0];
   assert.ok(sw.active && g && g.className === 'pxghost', 'snapshot layer mounted');
   assert.equal(g.textContent, 'Old movie page', 'old page content kept on screen');
-  assert.equal(g.children[0].style.transform, 'translateY(-420px)', 'snapshot keeps the scroll offset');
+  const inner = g.children.find(c => c.className === 'pxghosti') || g.children.flatMap(c => c.children).find(c => c.className === 'pxghosti');
+  assert.equal(inner.style.transform, 'translateY(-420px)', 'snapshot keeps the scroll offset');
   assert.equal(view.children.length, 0);
   // what route() renders under the snapshot while waiting: a skeleton, never text
   const sk = node('div'); sk.className = 'pxload'; view.appendChild(sk);
@@ -86,6 +87,31 @@ test('fu7f page swap: the old page stays visible during navigation and no raw lo
   sw.begin(); assert.equal(doc.body.children.length, 1, 'a second navigation reuses the snapshot');
   sw.end(); assert.ok(g.classList.contains('out'), 'crossfade out'); await new Promise(r => setTimeout(r, 60));
   assert.equal(doc.body.children.length, 0, 'snapshot removed after the fade'); assert.equal(sw.active, false);
+});
+
+test('page swap keeps the fanart on the viewport box, not the content column', () => {
+  const doc = { body: node('body'), createElement: node };
+  const view = node('div'); view.hidden = false;
+  const sc = { scrollTop: 0, getBoundingClientRect: () => ({ top: 48, left: 240, width: 1000, height: 700 }) };
+  const bd = node('div'); bd.className = 'pxbackdrop'; bd.classList.add('pxbackdrop');
+  const old = node('div'); old.textContent = 'Library';
+  view.appendChild(bd); view.appendChild(old);
+  const sw = pageSwap({ doc, scroller: sc, view, fadeMs: 1 });
+  sw.begin();
+  const g = doc.body.children[0];
+  const held = g.children.find(c => c.className === 'pxbackdrop');
+  assert.ok(held, 'fanart stays with the snapshot');
+  assert.equal(held.style.position, 'fixed');
+  assert.equal(held.style.width, '100vw');
+  assert.equal(held.style.height, '100vh');
+  assert.equal(held.style.top, '0');
+  assert.equal(held.style.left, '0');
+  const clip = g.children.find(c => c.className === 'pxghostclip');
+  assert.ok(clip, 'page content is clipped separately');
+  assert.equal(clip.children.some(c => c.className === 'pxbackdrop'), false);
+  assert.match(css, /\.pxghost\{[^}]*overflow:visible/);
+  assert.match(css, /\.pxghost \.pxbackdrop\{[^}]*position:fixed/);
+  assert.match(css, /\.pxghostclip\{[^}]*overflow:hidden/);
 });
 
 test('fu7f wiring: no raw loading text, back control, fade-in posters, show-page popover, dimmed backdrop', () => {
