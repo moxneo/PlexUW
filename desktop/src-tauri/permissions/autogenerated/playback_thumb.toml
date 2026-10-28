@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-playback-thumb"
+description = "Enables the playback_thumb command without any pre-configured scope."
+commands.allow = ["playback_thumb"]
+
+[[permission]]
+identifier = "deny-playback-thumb"
+description = "Denies the playback_thumb command without any pre-configured scope."
+commands.deny = ["playback_thumb"]

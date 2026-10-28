@@ -319,6 +319,8 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = String(txt); return e; };
   const NS = 'http://www.w3.org/2000/svg';
   const icon = n => { const v = document.createElementNS(NS, 'svg'); v.setAttribute('class', 'ic'); const u = document.createElementNS(NS, 'use'); u.setAttribute('href', 'assets/icons.svg#' + n); v.appendChild(u); return v; };
+  // Resume glyph is in the first paint. The external sprite stays empty until icons.svg loads.
+  const playMark = () => { const v = document.createElementNS(NS, 'svg'); v.setAttribute('class', 'ic'); v.setAttribute('viewBox', '0 0 24 24'); v.setAttribute('aria-hidden', 'true'); const p = document.createElementNS(NS, 'path'); p.setAttribute('d', 'M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.6-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z'); p.setAttribute('style', 'fill:#111;stroke:none'); v.appendChild(p); return v; };
   const main = document.getElementById('main'); if (!main) return null;
   const view = el('div', 'pxv'); view.id = 'pxView'; view.hidden = true;
   const top = main.querySelector('.topbar'); top ? top.after(view) : main.prepend(view);
@@ -467,9 +469,13 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const wrap = el('div', 'pxstw');
     const sc = el('div', 'row pxrow pxsts' + (r.wide ? ' pxwd' : ''));
     const ranked = /top\s*10/i.test((r.title || '') + ' ' + (r.key || ''));
+    const cw = sec.classList.contains('pxcw');
     r.items.forEach((it, i) => {
       const c = poster(it, !!r.wide, !!r.still);
-      if (ranked) { c.classList.add('pxranked'); const pp = c.querySelector('.poster'); if (pp) pp.appendChild(el('span', 'pxrank', String(i + 1))); }
+      const pp = c.querySelector('.poster');
+      if (ranked && pp) { c.classList.add('pxranked'); pp.appendChild(el('span', 'pxrank', String(i + 1))); }
+      // Same play triangle as the hero Resume button. Idle, not hover-only: poster+progress+title was a FAIL.
+      if (cw && pp) { const g = el('span', 'pxcwplay'); g.setAttribute('aria-hidden', 'true'); g.appendChild(playMark()); pp.appendChild(g); }
       sc.appendChild(c);
     });
     const arr = d => {
@@ -705,7 +711,7 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       if (hi.summary) h.appendChild(el('p', 'pxsum', hi.summary));
       if (fromCw) {
         const rs = el('button', 'pxresume'); rs.type = 'button';
-        rs.appendChild(icon('play')); rs.appendChild(el('span', null, 'Resume'));
+        rs.appendChild(playMark()); rs.appendChild(el('span', null, 'Resume'));
         rs.setAttribute('aria-label', 'Resume');
         rs.onclick = () => startTitlePlay(hi, false);
         h.appendChild(rs);
@@ -947,7 +953,13 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       if (v.server) b.appendChild(el('span', 'pxbadge' + (v.owned ? ' ow' : ' sh'), v.server + (v.owned ? ' · owned' : ' · shared')));
       if (v.picked) b.appendChild(el('span', 'pxbadge pk', 'Preferred'));
       b.title = v.current ? 'This copy' : 'Prefer this copy';
-      b.onclick = () => invoke('version_pick', { id: v.id }).then(() => { w.querySelectorAll('.pxbadge.pk').forEach(x => x.remove()); /* LOW-C: every Preferred badge carries .pk, so only one survives */ const t = el('span', 'pxbadge pk', 'Preferred'); b.appendChild(t); }).catch(() => {});
+      b.onclick = () => invoke('version_pick', { id: v.id }).then(() => {
+        (it.versions || []).forEach(x => { x.picked = x === v; });
+        w.querySelectorAll('.pxbadge.pk').forEach(x => x.remove()); /* LOW-C: every Preferred badge carries .pk, so only one survives */
+        b.appendChild(el('span', 'pxbadge pk', 'Preferred'));
+        const row = w.closest('.pxdtext') && w.closest('.pxdtext').querySelector('.pxround');
+        if (row) row.replaceWith(playRow(it));
+      }).catch(() => {});
       w.appendChild(b); });
     return w;
   }
@@ -986,7 +998,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     it.playVersion = null;
     const durMs = it.durationMs || 0;
     const chapters = durMs > 0 ? (it.chapters || []).slice(0, 48).map(c => ({ t: typeof c.title === 'string' ? c.title.slice(0, 80) : '', at: Math.max(0, Math.min(1, (c.startMs || 0) / durMs)) })) : [];
-    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: durMs, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0), chapters, summary: clip(it.summary, 600), poster: opaqueArt(it.poster || it.thumb), thumb: opaqueArt(it.thumb || it.art), art: opaqueArt(it.art), studio: clip(it.studio, 80), rating: typeof it.audienceRating === 'number' ? it.audienceRating : (typeof it.rating === 'number' ? it.rating : ''), contentRating: clip(it.contentRating, 16), tagline: clip(it.tagline, 160), genres: (it.genres || []).filter(g => typeof g === 'string').slice(0, 6).map(g => g.slice(0, 40)), directors: (it.directors || []).filter(x => typeof x === 'string').slice(0, 4).map(x => x.slice(0, 80)), cast: (it.cast || []).slice(0, 8).map(c => ({ name: clip(c && c.name, 80), role: clip(c && c.role, 40) })).filter(c => c.name), upNext: [], upNextReady: false };
+    const subTracks = trackRows(it, 'sub');
+    const mem = avMemory(it.id);
+    let subIndex = mem.sub;
+    if (subIndex == null) { const on = subTracks.findIndex(t => t.selected); subIndex = on >= 0 ? on : -1; }
+    const subs = subTracks.map((t, i) => ({ i, label: t.label }));
+    const ctx = { plexId: it.id, versionId, returnHash: back, durationMs: durMs, title: it.title || '', year: it.year || '', kind: it.kind || '', show: it.grandparentTitle || it.parentTitle || '', season: it.parentIndex || '', episode: it.index || '', fromStart: !!fromStart, viewOffsetMs: fromStart ? 0 : (it.viewOffsetMs || 0), chapters, subs, subIndex, summary: clip(it.summary, 600), poster: opaqueArt(it.poster || it.thumb), thumb: opaqueArt(it.thumb || it.art), art: opaqueArt(it.art), studio: clip(it.studio, 80), rating: typeof it.audienceRating === 'number' ? it.audienceRating : (typeof it.rating === 'number' ? it.rating : ''), contentRating: clip(it.contentRating, 16), tagline: clip(it.tagline, 160), genres: (it.genres || []).filter(g => typeof g === 'string').slice(0, 6).map(g => g.slice(0, 40)), directors: (it.directors || []).filter(x => typeof x === 'string').slice(0, 4).map(x => x.slice(0, 80)), cast: (it.cast || []).slice(0, 8).map(c => ({ name: clip(c && c.name, 80), role: clip(c && c.role, 40) })).filter(c => c.name), upNext: [], upNextReady: false };
     const write = o => { try { sessionStorage.setItem('pxPlayCtx', JSON.stringify(o)); } catch (e) {} };
     write(ctx);
     location.hash = '#player/plex';
@@ -1004,9 +1021,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
       try { window.dispatchEvent(new CustomEvent('px-play-drawers')); } catch (e) {}
     });
   }
+  function selectedVersion(it) {
+    const vs = (it.versions || []).filter(v => v && typeof v.id === 'string' && ID.test(v.id));
+    return vs.find(x => x.picked) || vs.find(x => x.current) || null;
+  }
   function pickedVersion(it) {
-    const vs = it.versions || [];
-    const v = vs.find(x => x.picked) || vs.find(x => x.current) || vs[0];
+    const v = selectedVersion(it);
     return (v && v.id) || it.defaultVersion || null;
   }
   function choiceLabel(v) {
@@ -1177,9 +1197,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const multi = new Set(choices.map(v => v.server)).size > 1 || choices.length > 1;
     const rb = (ic, lab, fn) => { const b = el('button', 'pxrb lab'); b.type = 'button'; b.title = lab; b.setAttribute('aria-label', lab); b.appendChild(ic.length === 1 ? el('span', 'pxglyph', ic) : icon(ic)); b.appendChild(el('span', 'pxrbl', lab)); b.onclick = fn; ra.appendChild(b); return b; };
     if (multi && choices.length) {
+      const chosen = selectedVersion(it);
       const slot = el('div', 'pxfeat');
-      const pb = el('button', 'pxrb lab'); pb.type = 'button'; pb.appendChild(icon('play')); pb.appendChild(el('span', 'pxrbl', 'Play · choose server'));
-      pb.title = 'Play · choose server'; pb.setAttribute('aria-label', 'Play · choose server');
+      const pb = el('button', 'pxrb lab'); pb.type = 'button'; pb.appendChild(icon('play'));
+      const lab = chosen ? ('Play · ' + (chosen.server || chosen.label || 'server')) : 'Play · choose server';
+      pb.appendChild(el('span', 'pxrbl', lab));
+      pb.title = lab; pb.setAttribute('aria-label', lab);
       const menu = el('div', 'pxfeatmenu'); menu.hidden = true; menu.setAttribute('role', 'menu');
       menu.appendChild(el('div', 'mh', 'Play from'));
       choices.forEach(v => {
@@ -1187,9 +1210,17 @@ export function mountPlexBrowse(invoke, hooks = {}) {
         b.onclick = e => { e.stopPropagation(); menu.hidden = true; invoke('version_pick', { id: v.id }).catch(() => {}); it.playVersion = v.id; startTitlePlay(it, false); };
         menu.appendChild(b);
       });
-      pb.onclick = e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; if (open) placeMenu(pb, menu); };
+      const openMenu = e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; if (open) placeMenu(pb, menu); };
+      const chev = el('button', 'pxrb'); chev.type = 'button'; chev.title = 'Change server'; chev.setAttribute('aria-label', 'Change server');
+      chev.appendChild(el('span', 'pxglyph', '▾')); chev.onclick = openMenu;
+      pb.onclick = e => {
+        e.stopPropagation();
+        const pick = selectedVersion(it);
+        if (pick) { menu.hidden = true; it.playVersion = pick.id; startTitlePlay(it, false); return; }
+        openMenu(e);
+      };
       document.addEventListener('click', e => { if (!slot.contains(e.target)) menu.hidden = true; });
-      slot.appendChild(pb); slot.appendChild(menu); ra.appendChild(slot);
+      slot.appendChild(pb); slot.appendChild(chev); slot.appendChild(menu); ra.appendChild(slot);
     } else { const b = rb('play', 'Play', () => startTitlePlay(it, false)); if (it.versionsPending) { b.title = 'Play · still checking other servers'; b.setAttribute('aria-label', b.title); } }
     const from = el('button', 'pxrb lab'); from.type = 'button'; from.appendChild(icon('rew')); from.appendChild(el('span', 'pxrbl', 'Play from start'));
     from.title = 'Play from start'; from.setAttribute('aria-label', 'Play from start');

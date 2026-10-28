@@ -25,6 +25,22 @@ mod play;
 mod watchlist;
 pub use mx::HomeView;
 
+/// Latest playback clock for `/:/timeline`. Lives on `Plex` so tests don't share a process static.
+#[derive(Clone)]
+struct PlayClock {
+    mid: String,
+    rk: u64,
+    duration_ms: u64,
+    time_ms: u64,
+    state: String,
+    pending: bool,
+}
+impl Default for PlayClock {
+    fn default() -> Self {
+        Self { mid: String::new(), rk: 0, duration_ms: 0, time_ms: 0, state: "stopped".into(), pending: false }
+    }
+}
+
 pub struct Plex {
     egress: Arc<Egress>,
     servers: Mutex<Vec<Server>>,
@@ -50,6 +66,8 @@ pub struct Plex {
     conns: Mutex<std::collections::HashMap<String, Conn>>,
     /// fu7b merged-servers engine (fan-out cache, library cursors, fill-in events).
     mx: mx::Mx,
+    /// Playing version's server + rating key. JS sends state and time only.
+    timeline: Mutex<PlayClock>,
 }
 type P<'a> = State<'a, Arc<Plex>>;
 
@@ -98,6 +116,17 @@ impl Plex {
         self.hls.clear();
         let _ = std::fs::remove_dir_all(&self.cache_dir);
     }
+    /// Remember which copy is playing so timeline posts stay on that server.
+    pub fn arm_timeline(&self, mid: &str, rk: u64, duration_ms: u64, time_ms: u64) {
+        if rk == 0 || mid.is_empty() { return; }
+        let mut c = self.timeline.lock().unwrap();
+        c.mid = mid.to_string();
+        c.rk = rk;
+        c.duration_ms = duration_ms;
+        c.time_ms = if duration_ms > 0 { time_ms.min(duration_ms) } else { time_ms };
+        c.state = "playing".into();
+        c.pending = true;
+    }
 }
 
 fn backend() -> (Arc<dyn Transport>, Arc<dyn SecretStore>) {
@@ -138,7 +167,7 @@ pub fn init(app: &AppHandle) {
         images: Images::default(),
         hls: HlsMap::default(), conn_gen: AtomicU64::new(0),
         cache_dir,
-        slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+        slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
     });
     {
         let app2 = app.clone();
@@ -659,8 +688,8 @@ pub async fn browse_search(p: P<'_>, query: String) -> Result<Vec<browse::Hub>, 
 /// selects that copy; a miss falls back to the item. Errors are `playback` or
 /// `playback (status)` — never a URL, host or token.
 #[tauri::command]
-pub async fn play_start(p: P<'_>, id: String, version_id: Option<String>, offset_ms: Option<u64>) -> Result<play::PlayOut, String> {
-    play::start(p.inner(), &id, version_id.as_deref(), offset_ms.unwrap_or(0)).await
+pub async fn play_start(p: P<'_>, id: String, version_id: Option<String>, offset_ms: Option<u64>, subtitle_index: Option<u32>) -> Result<play::PlayOut, String> {
+    play::start(p.inner(), &id, version_id.as_deref(), offset_ms.unwrap_or(0), subtitle_index).await
 }
 
 /// Account card for the rail. plex.tv `/api/v2/user` only. JS receives a display
@@ -726,8 +755,93 @@ pub async fn opaque_get(p: P<'_>, kind: String, id: String) -> Result<play::Opaq
 }
 
 /// N2: playback stop clears the HLS id map. Home/Continue Watching rows are stale after a play.
+/// The latest timeline sample is flushed as `stopped` even mid-interval.
 #[tauri::command]
-pub fn playback_stop(p: P<'_>) { p.hls.clear(); p.mx.drop_home_rows(); }
+pub fn playback_stop(p: P<'_>) {
+    let arc = p.inner().clone();
+    {
+        let mut c = arc.timeline.lock().unwrap();
+        if c.rk != 0 {
+            c.state = "stopped".into();
+            c.pending = true;
+        }
+    }
+    let flush = arc.clone();
+    tauri::async_runtime::spawn(async move { let _ = flush_timeline(&flush).await; });
+    arc.hls.clear();
+    arc.mx.drop_home_rows();
+}
+
+/// Progress report. JS sends `state` and `timeMs` only; rating key and server come from the play clock.
+#[tauri::command]
+pub async fn playback_timeline(p: P<'_>, state: String, time_ms: u64) -> Result<(), String> {
+    if !matches!(state.as_str(), "playing" | "paused" | "stopped") { return Err("timeline".into()); }
+    if time_ms > 48 * 60 * 60 * 1000 { return Err("timeline".into()); }
+    let arc = p.inner().clone();
+    {
+        let mut c = arc.timeline.lock().unwrap();
+        if c.rk == 0 || c.mid.is_empty() { return Ok(()); }
+        c.time_ms = if c.duration_ms > 0 { time_ms.min(c.duration_ms) } else { time_ms };
+        c.state = state;
+        c.pending = true;
+    }
+    if !flush_timeline(&arc).await {
+        let retry = arc.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            if retry.timeline.lock().unwrap().pending { let _ = flush_timeline(&retry).await; }
+        });
+    }
+    Ok(())
+}
+
+/// Opaque id for a PMS time thumb (`/library/metadata/{rk}/thumb/{ms}`). No host or token reaches JS.
+#[tauri::command]
+pub async fn playback_thumb(p: P<'_>, at_ms: u64) -> Result<Option<String>, String> {
+    if at_ms > 48 * 60 * 60 * 1000 { return Ok(None); }
+    let arc = p.inner().clone();
+    let (mid, rk) = { let c = arc.timeline.lock().unwrap(); (c.mid.clone(), c.rk) };
+    if rk == 0 || mid.is_empty() { return Ok(None); }
+    Ok(arc.images.register(&mid, &format!("/library/metadata/{rk}/thumb/{at_ms}")))
+}
+
+async fn flush_timeline(p: &Arc<Plex>) -> bool {
+    let snap = p.timeline.lock().unwrap().clone();
+    if snap.rk == 0 || snap.mid.is_empty() || !matches!(snap.state.as_str(), "playing" | "paused" | "stopped") {
+        return true;
+    }
+    let server = match p.servers.lock().unwrap().iter().find(|s| s.machine_id == snap.mid).cloned() {
+        Some(s) => s,
+        None => { p.timeline.lock().unwrap().pending = true; return false; }
+    };
+    let Some(conn) = conn_for(p, &server).await else {
+        p.timeline.lock().unwrap().pending = true;
+        return false;
+    };
+    let path = "/:/timeline";
+    let mut url = match conn.url.join(path) {
+        Ok(u) => u,
+        Err(_) => { p.timeline.lock().unwrap().pending = true; return false; }
+    };
+    let key = format!("/library/metadata/{}", snap.rk);
+    let q = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("ratingKey", &snap.rk.to_string())
+        .append_pair("key", &key)
+        .append_pair("state", &snap.state)
+        .append_pair("time", &snap.time_ms.to_string())
+        .append_pair("duration", &snap.duration_ms.to_string())
+        .finish();
+    url.set_query(Some(&q));
+    let sent = p.egress.send(crate::plex::transport::Method::Get, url, crate::plex::egress::Cred::Server(snap.mid.clone()), Duration::from_secs(15)).await;
+    let ok = sent.as_ref().map(|r| (200..300).contains(&r.status)).unwrap_or(false);
+    let mut c = p.timeline.lock().unwrap();
+    if ok && c.time_ms == snap.time_ms && c.state == snap.state {
+        c.pending = false;
+    } else {
+        c.pending = true;
+    }
+    ok
+}
 
 /// Sign-out and server-epoch wipes. The Home disk snapshot is titles and opaque ids only.
 pub(crate) fn wipe_session_disk(p: &Plex) {
@@ -888,7 +1002,7 @@ mod t {
             manual_ask: Mutex::new(None), trust: Mutex::new(api::Trust::default()), trust_path: dir.join("t.json"), ai_migrate_failed: false,
             source: Mutex::new(Box::new(PlexSource { machine_id: "fixturemachine0001".into(), name: "MoxBox".into(), owned: true, conn })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
-            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         })
     }
 
@@ -1095,7 +1209,7 @@ mod t {
             manual_ask: Mutex::new(None), trust: Mutex::new(api::Trust::default()), trust_path: dir.join("t.json"), ai_migrate_failed: false,
             source: Mutex::new(Box::new(MockSource { reason: "first-run" })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
-            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         });
         *p.servers.lock().unwrap() = api::load_resources(&e).await.unwrap();
         connect(&p, "fixturemachine0001").await.unwrap();
@@ -1140,7 +1254,7 @@ mod t {
             manual_ask: Mutex::new(None), trust: Mutex::new(api::Trust::default()), trust_path: dir.join("t.json"), ai_migrate_failed: false,
             source: Mutex::new(Box::new(MockSource { reason: "first-run" })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
-            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         });
         *p.servers.lock().unwrap() = api::load_resources(&e).await.unwrap();
         let genres = |v: &serde_json::Value| browse::facets(v).into_iter().map(|f| f.title).collect::<Vec<_>>();
@@ -1184,7 +1298,7 @@ mod t {
             manual_ask: Mutex::new(None), trust: Mutex::new(api::Trust::default()), trust_path: dir.join("t.json"), ai_migrate_failed: false,
             source: Mutex::new(Box::new(MockSource { reason: "first-run" })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
-            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         });
         p.set_servers(api::load_resources(&e).await.unwrap());
         assert_eq!(p.servers.lock().unwrap().len(), 3);
@@ -1238,7 +1352,7 @@ mod t {
             manual_ask: Mutex::new(None), trust: Mutex::new(api::Trust::default()), trust_path: dir.join("t.json"), ai_migrate_failed: false,
             source: Mutex::new(Box::new(MockSource { reason: "first-run" })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
-            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"), slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         });
         p.set_servers(api::load_resources(&e).await.unwrap());
         assert_eq!(p.servers.lock().unwrap().len(), 3);
@@ -1332,7 +1446,7 @@ mod t {
         let ft = Arc::new(FixtureTransport::default());
         let p = fixture_with(&dir, ft.clone());
         let id = iid(&p, 1001);
-        let out = play::start(&p, &id, None, 0).await.expect("hls play");
+        let out = play::start(&p, &id, None, 0, None).await.expect("hls play");
         assert_eq!(out.kind, "hls");
         assert_eq!(out.duration_ms, 5_460_000);
         assert!(out.url.starts_with("/hls/") && out.url.len() == 5 + 32, "{}", out.url);
@@ -1394,7 +1508,7 @@ mod t {
         let dir = std::env::temp_dir().join(format!("plexuw-play-1007-{}", std::process::id()));
         let ft = Arc::new(FixtureTransport::default());
         let p = fixture_with(&dir, ft.clone());
-        let err = play::start(&p, &iid(&p, 1007), None, 0).await.unwrap_err();
+        let err = play::start(&p, &iid(&p, 1007), None, 0, None).await.unwrap_err();
         assert_eq!(err, "playback (502)");
         assert_eq!(p.hls.len(), 0);
         let logs = ft.log();
@@ -1411,7 +1525,7 @@ mod t {
         let dir = std::env::temp_dir().join(format!("plexuw-play-1008-{}", std::process::id()));
         let ft = Arc::new(FixtureTransport::default());
         let p = fixture_with(&dir, ft.clone());
-        let err = play::start(&p, &iid(&p, 1008), None, 0).await.unwrap_err();
+        let err = play::start(&p, &iid(&p, 1008), None, 0, None).await.unwrap_err();
         assert_eq!(err, "playback (502)");
         assert_eq!(p.hls.len(), 0);
         let logs = ft.log();
@@ -1430,7 +1544,7 @@ mod t {
         let ft = Arc::new(FixtureTransport::default());
         let p = fixture_with(&dir, ft.clone());
         let id = iid(&p, 2011);
-        let out = play::start(&p, &id, Some("not-a-version"), 0).await.expect("direct");
+        let out = play::start(&p, &id, Some("not-a-version"), 0, None).await.expect("direct");
         assert_eq!(out.kind, "direct");
         assert_eq!(out.duration_ms, 2_700_000);
         assert!(out.url.starts_with("/media/") && out.url.len() == 7 + 32, "{}", out.url);
@@ -1443,7 +1557,7 @@ mod t {
         assert!(r.body.windows(4).any(|w| w == b"ftyp"), "direct body {:?}", r.body);
         // A resolved version id is honored (1007 fails preflight) instead of the item.
         let ver = p.slots.mint(Target::Version { mid: "fixturemachine0001".into(), rating_key: 1007, media: 0, guid: "plex://movie/x".into() });
-        let err = play::start(&p, &id, Some(&ver), 0).await.unwrap_err();
+        let err = play::start(&p, &id, Some(&ver), 0, None).await.unwrap_err();
         assert_eq!(err, "playback (502)");
         assert_eq!(p.hls.len(), 0);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1488,7 +1602,7 @@ mod t {
                 slots: Default::default(),
                 sticky: Default::default(),
                 conns: Default::default(),
-                mx: Default::default(),
+                mx: Default::default(), timeline: Default::default(),
             })
         };
         let chunked: Arc<dyn SecretStore> = Arc::new(secrets::Chunked::new(MemStore { max_units: Some(1000), ..MemStore::default() }));

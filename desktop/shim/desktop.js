@@ -24,7 +24,10 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   // Player's own top bar: wire its window buttons too, and make it draggable
   const ptb=document.querySelector('#player .tr');
   if(ptb){const bs=ptb.querySelectorAll('button.tb');bs.forEach(b=>{if(b.title==='Minimize')b.onclick=W.min;if(b.title==='Maximize')b.onclick=W.max})}
-  const bF=document.getElementById('bF'); if(bF) bF.onclick=W.fs; // app fullscreen button -> real borderless window fullscreen
+  const bF=document.getElementById('bF');
+  // One handler. A second onclick that also calls W.fs toggles twice and looks dead.
+  // The title must not cover the button (pointer-events) or the click never arrives.
+  if(bF){bF.onclick=null;bF.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();W.fs()},true)}
   addEventListener('keydown',e=>{if(e.key==='F11'){e.preventDefault();e.stopImmediatePropagation();W.fs()}},true);
   // Hide shell title bar while the player (which has its own chrome) is showing
   const pl=document.getElementById('player');const upd=()=>body.classList.toggle('inplayer',!!pl&&!pl.hidden);
@@ -291,8 +294,9 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   // Real library playback. The webview never XHRs plexuw://; playlists and segments
   // come back through opaque_get. A failure clears the video element.
   function b64ToU8(s){const bin=atob(s||'');const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
-  let hlsPlayer=null, plexLive=false;
+  let hlsPlayer=null, plexLive=false, tlTimer=0;
   let scrubVid=null,scrubHls=null,scrubAbs='',scrubTimer=0,scrubGen=0;
+  const scrubCache=new Map();
   function pushVol(v){
     if(!v||typeof window.__pxReadVol!=='function')return;
     const n=window.__pxReadVol();
@@ -304,6 +308,14 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
     if(scrubVid){try{scrubVid.pause();scrubVid.removeAttribute('src');scrubVid.load();scrubVid.remove()}catch(e){}scrubVid=null}
     scrubAbs='';window.__pxPlayAbs='';window.__pxPlayKind='';
+  }
+  function drawOnto(canvas,src){try{const x=canvas.getContext('2d');if(x&&src)x.drawImage(src,0,0,canvas.width,canvas.height)}catch(e){}}
+  function rememberScrub(bucket,canvas){
+    try{
+      let c=scrubCache.get(bucket);
+      if(!c){c=document.createElement('canvas');scrubCache.set(bucket,c);if(scrubCache.size>24)scrubCache.delete(scrubCache.keys().next().value)}
+      c.width=canvas.width;c.height=canvas.height;c.getContext('2d').drawImage(canvas,0,0);
+    }catch(e){}
   }
   function scrubDraw(sec,canvas){
     const abs=window.__pxPlayAbs,kind=window.__pxPlayKind;
@@ -321,12 +333,46 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
       }else if(kind!=='hls')el.src=abs;
     }
     const v=scrubVid,gen=++scrubGen;
-    const draw=()=>{if(gen!==scrubGen||!v.videoWidth)return;try{const x=canvas.getContext('2d');if(x)x.drawImage(v,0,0,canvas.width,canvas.height)}catch(e){}};
+    const draw=()=>{if(gen!==scrubGen||!v.videoWidth)return;drawOnto(canvas,v);rememberScrub(Math.max(0,Math.round(sec/10)),canvas)};
     const go=()=>{if(gen!==scrubGen)return;const on=()=>{v.removeEventListener('seeked',on);draw()};v.addEventListener('seeked',on);try{if(scrubHls&&scrubHls.startLoad)scrubHls.startLoad(Math.max(0,sec));v.currentTime=Math.max(0,sec)}catch(e){}};
     if(v.readyState>=1)go();else v.addEventListener('loadedmetadata',()=>go(),{once:true});
   }
-  window.__pxScrubTo=(sec,canvas)=>{clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>scrubDraw(sec,canvas),90)};
+  function scrubNow(sec,canvas){
+    const main=document.getElementById('vid');
+    const bucket=Math.max(0,Math.round(sec/10));
+    if(main&&main.videoWidth&&Math.abs((main.currentTime||0)-sec)<1.5){drawOnto(canvas,main);rememberScrub(bucket,canvas);return}
+    const hit=scrubCache.get(bucket); if(hit)drawOnto(canvas,hit);
+    const gen=++scrubGen;
+    invoke('playback_thumb',{atMs:Math.max(0,Math.round(sec*1000))}).then(id=>{
+      if(gen!==scrubGen||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return;
+      const im=new Image(); im.onload=()=>{if(gen!==scrubGen)return;drawOnto(canvas,im);rememberScrub(bucket,canvas)}; im.src=img(id,320,180);
+    }).catch(function(){});
+    clearTimeout(scrubTimer); scrubTimer=setTimeout(()=>{if(gen===scrubGen)scrubDraw(sec,canvas)},280);
+  }
+  window.__pxScrubTo=(sec,canvas)=>{if(!canvas||typeof sec!=='number'||!isFinite(sec))return;scrubNow(sec,canvas)};
   window.__pxScrubStop=()=>{clearTimeout(scrubTimer);if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}};
+  window.__pxFlushStop=function(){
+    if(!plexLive)return Promise.resolve();
+    const v=document.getElementById('vid');
+    const ms=v?Math.max(0,Math.round((v.currentTime||0)*1000)):0;
+    plexLive=false; clearInterval(tlTimer);
+    return invoke('playback_timeline',{state:'stopped',timeMs:ms}).catch(function(){}).finally(function(){return invoke('playback_stop').catch(function(){})});
+  };
+  function sendTl(state){
+    if(!plexLive)return;
+    const v=document.getElementById('vid'); if(!v)return;
+    invoke('playback_timeline',{state,timeMs:Math.max(0,Math.round((v.currentTime||0)*1000))}).catch(function(){});
+  }
+  function hookTl(v){
+    clearInterval(tlTimer);
+    if(!v.__pxTl){
+      v.__pxTl=1;
+      v.addEventListener('pause',()=>{if(plexLive)sendTl('paused')});
+      v.addEventListener('play',()=>{if(plexLive)sendTl('playing')});
+      v.addEventListener('seeked',()=>{if(plexLive)sendTl(v.paused?'paused':'playing')});
+    }
+    tlTimer=setInterval(()=>{if(plexLive&&v&&!v.paused&&!v.ended)sendTl('playing')},10000);
+  }
   function clearVid(){killScrub();if(hlsPlayer){try{hlsPlayer.destroy()}catch(e){}hlsPlayer=null}const v=document.getElementById('vid');if(!v)return;try{v.pause()}catch(e){}v.onerror=null;if(v.getAttribute('src')){v.removeAttribute('src');v.load()}}
   function showPlayErr(msg){const t=document.getElementById('toast');if(t){t.textContent=msg;t.classList.add('show','status')}const d=document.getElementById('tdur');if(d&&d.textContent==='00:00:10')d.textContent='--:--:--'}
   class PlexLoader extends Hls.DefaultConfig.loader {
@@ -348,10 +394,12 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   function onVidErr(){const v=document.getElementById('vid');const c=v&&v.error&&v.error.code;const name={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'}[c]||'MEDIA_ERR';showPlayErr('Could not start playback ('+name+(c!=null?' '+c:'')+')');clearVid()}
   async function beginPlexPlay(){
     if(String(location.hash||'').indexOf('#player/plex')!==0)return;
+    clearInterval(tlTimer);
     clearVid();plexLive=true;
     let ctx={};try{ctx=JSON.parse(sessionStorage.getItem('pxPlayCtx')||'{}')}catch(e){ctx={}}
     if(!ctx.plexId){showPlayErr('Could not start playback');return}
-    let out;try{out=await invoke('play_start',{id:ctx.plexId,versionId:ctx.versionId||null,offsetMs:ctx.fromStart?0:(ctx.viewOffsetMs||0)})}catch(e){
+    const sub=Number.isInteger(ctx.subIndex)&&ctx.subIndex>=0?ctx.subIndex:null;
+    let out;try{out=await invoke('play_start',{id:ctx.plexId,versionId:ctx.versionId||null,offsetMs:ctx.fromStart?0:(ctx.viewOffsetMs||0),subtitleIndex:sub})}catch(e){
       const s=String(e&&e.message||e||'');console.error('plexuw play: step=play_start err='+s.slice(0,180));const mm=/\(([0-9]{3}|rewrite|redirect|denied|network|segment|auth)\)/.exec(s);showPlayErr('Could not start playback'+(mm?' ('+mm[1]+')':''));clearVid();return}
     if(out&&out.durationMs){window.__pxPlayDur=out.durationMs;const td=document.getElementById('tdur');if(td&&typeof hms==='function')td.textContent=hms(out.durationMs/1000)}
     const v=document.getElementById('vid');if(!v||!out||!out.url){showPlayErr('Could not start playback');return}
@@ -359,8 +407,10 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     window.__pxPlayAbs=abs;window.__pxPlayKind=out.kind||'';
     v.onerror=onVidErr;
     v.addEventListener('ended',function(){if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()},{once:true});
-    v.addEventListener('playing',function(){pushVol(v)},{once:true});
+    v.addEventListener('playing',function(){pushVol(v);sendTl('playing')},{once:true});
     pushVol(v);
+    hookTl(v);
+    const cc=document.getElementById('bCc'); if(cc)cc.classList.toggle('on',sub!=null);
     if(out.kind==='hls'){
       if(Hls.isSupported()){
         hlsPlayer=new Hls({enableWorker:false,loader:PlexLoader});
@@ -376,8 +426,55 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   }
   addEventListener('hashchange',function(){
     if(String(location.hash||'').indexOf('#player/plex')===0)beginPlexPlay();
-    else if(plexLive){plexLive=false;clearVid();invoke('playback_stop').catch(function(){});if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()}
+    else if(plexLive){window.__pxFlushStop(); clearVid(); if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()}
   });
+  window.__pxPickSub=function(index){
+    let ctx={}; try{ctx=JSON.parse(sessionStorage.getItem('pxPlayCtx')||'{}')}catch(e){ctx={}}
+    if(!ctx.plexId)return;
+    const v=document.getElementById('vid');
+    ctx.subIndex=index==null?-1:index;
+    ctx.fromStart=false;
+    ctx.viewOffsetMs=v?Math.max(0,Math.round((v.currentTime||0)*1000)):(ctx.viewOffsetMs||0);
+    try{sessionStorage.setItem('pxPlayCtx',JSON.stringify(ctx))}catch(e){}
+    beginPlexPlay();
+  };
+  addEventListener('pagehide',function(){if(window.__pxFlushStop)window.__pxFlushStop()});
+  const esc=document.createElement('div'); esc.id='pxEsc'; esc.hidden=true;
+  esc.innerHTML='<div class="pxescbg"></div><div class="pxesc" role="menu" aria-label="Playback">'
+    +'<button type="button" data-act="home">Go Home</button>'
+    +'<button type="button" data-act="fs">Exit fullscreen</button>'
+    +'<button type="button" data-act="quit">Exit</button>'
+    +'<button type="button" data-act="pip">Picture in picture</button></div>';
+  document.body.appendChild(esc);
+  const closeEsc=()=>{esc.hidden=true};
+  const openEsc=()=>{
+    esc.hidden=false;
+    invoke('win_is_fullscreen').then(on=>{const b=esc.querySelector('[data-act="fs"]'); if(b)b.disabled=!on}).catch(function(){});
+  };
+  esc.addEventListener('click',e=>{
+    if(e.target.classList&&e.target.classList.contains('pxescbg')){closeEsc();return}
+    const b=e.target.closest&&e.target.closest('[data-act]'); if(!b)return;
+    const act=b.dataset.act; closeEsc();
+    if(act==='home'&&typeof goBackFromPlayer==='function')goBackFromPlayer();
+    else if(act==='fs')invoke('win_is_fullscreen').then(on=>{if(on)invoke('win_toggle_fullscreen')}).catch(function(){});
+    else if(act==='quit'){ Promise.resolve(window.__pxFlushStop&&window.__pxFlushStop()).finally(function(){invoke('win_close').catch(function(){})}); }
+    else if(act==='pip'){
+      const v=document.getElementById('vid');
+      if(!v||!v.requestPictureInPicture){const t=document.getElementById('toast'); if(t){t.textContent='Picture in picture is not available'; t.classList.add('show')} return}
+      const p=document.pictureInPictureElement?document.exitPictureInPicture():v.requestPictureInPicture();
+      Promise.resolve(p).catch(()=>{const t=document.getElementById('toast'); if(t){t.textContent='Picture in picture is not available'; t.classList.add('show')}});
+    }
+  });
+  addEventListener('keydown',function(e){
+    if(e.key!=='Escape')return;
+    const player=document.getElementById('player');
+    if(!player||player.hidden)return;
+    const voice=document.getElementById('voice'), ask=document.getElementById('ask'), pal=document.getElementById('pal'), pk=document.getElementById('pxPalette');
+    if((voice&&!voice.hidden)||(ask&&!ask.hidden)||(pal&&!pal.hidden)||(pk&&!pk.hidden)||document.querySelector('.pxpm:not([hidden])'))return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if(!esc.hidden){closeEsc();return}
+    openEsc();
+  },true);
   if(String(location.hash||'').indexOf('#player/plex')===0)beginPlexPlay();
   // Fixture-build screenshot driver. fu7g (Sentinel INFO-1): the whole driver, fu7fBadge and the
   // __pxDelay/__pxNavDelay setters are compiled out unless PLEXUW_MOCK=true.

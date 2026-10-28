@@ -129,6 +129,7 @@ fn val_ok(key: &str, v: &str) -> bool {
         "mediaIndex" | "partIndex" | "subtitleSize" | "audioBoost" | "mediaBufferSize" | "videoQuality" | "maxVideoBitrate" | "offset" => {
             !v.is_empty() && v.len() <= 8 && v.bytes().all(|b| b.is_ascii_digit())
         }
+        "subtitleStreamID" => !v.is_empty() && v.len() <= 12 && v.bytes().all(|b| b.is_ascii_digit()),
         "videoCodec" | "audioCodec" => v.bytes().all(|b| b.is_ascii_alphanumeric()),
         "X-Plex-Client-Identifier" => v.len() == 36 && v.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'),
         "X-Plex-Product" | "X-Plex-Device" | "X-Plex-Device-Name" | "X-Plex-Client-Profile-Name" | "X-Plex-Platform" | "X-Plex-Platform-Version" | "X-Plex-Model" | "X-Plex-Language" | "X-Plex-Version" | "Accept-Language" => {
@@ -155,6 +156,7 @@ fn known_key(k: &str) -> bool {
             | "location"
             | "session"
             | "subtitles"
+            | "subtitleStreamID"
             | "autoAdjustQuality"
             | "mediaBufferSize"
             | "videoQuality"
@@ -279,8 +281,9 @@ pub fn playback_profile_headers() -> [(&'static str, &'static str); 2] {
 /// H.264/AAC HLS. `copyts` is the HTTP/MKV flag and is omitted here — PMS
 /// rejects that combination on an HLS decision. The WebView is not mpv, so
 /// the target is 1080p / 20 Mbps even when the source is HEVC.
-pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str) -> String {
+pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
+    let burn = subtitle_stream.map(|id| id.to_string());
     let pairs = [
         ("hasMDE", "1"),
         ("path", meta_path),
@@ -295,7 +298,7 @@ pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: us
         ("audioBoost", "100"),
         ("location", location),
         ("session", session),
-        ("subtitles", "none"),
+        ("subtitles", if burn.is_some() { "burn" } else { "none" }),
         ("autoAdjustQuality", "0"),
         ("mediaBufferSize", "102400"),
         ("videoQuality", "100"),
@@ -317,6 +320,9 @@ pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: us
     for (k, v) in pairs {
         s.append_pair(k, v);
     }
+    if let Some(id) = burn.as_deref() {
+        s.append_pair("subtitleStreamID", id);
+    }
     s.finish()
 }
 
@@ -326,9 +332,9 @@ pub struct HlsPair {
     pub start: String,
 }
 
-pub fn build_hls_pair(rating_key: u64, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str) -> HlsPair {
+pub fn build_hls_pair(rating_key: u64, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>) -> HlsPair {
     let session = uuid::Uuid::new_v4().simple().to_string();
-    let q = build_hls_universal_query(&format!("/library/metadata/{rating_key}"), &session, media_index, offset_sec, location, client_id, platform, version);
+    let q = build_hls_universal_query(&format!("/library/metadata/{rating_key}"), &session, media_index, offset_sec, location, client_id, platform, version, subtitle_stream);
     HlsPair {
         session,
         decision: format!("/video/:/transcode/universal/decision?{q}"),
@@ -492,7 +498,7 @@ mod t {
 
     #[test]
     fn universal_query_force_transcode_and_allowlist() {
-        let q = build_hls_universal_query("/library/metadata/42", &"ab".repeat(16), 0, 0, "lan", "11111111-1111-4111-8111-111111111111", "Linux", "0.1.0");
+        let q = build_hls_universal_query("/library/metadata/42", &"ab".repeat(16), 0, 0, "lan", "11111111-1111-4111-8111-111111111111", "Linux", "0.1.0", None);
         assert!(q.contains("directPlay=0"));
         assert!(q.contains("directStream=0"));
         assert!(q.contains("directStreamAudio=0"));
@@ -513,6 +519,12 @@ mod t {
         assert!(!extra.to_ascii_lowercase().contains("hevc") && !extra.contains("h265") && !extra.contains("mkv") && !extra.to_ascii_lowercase().contains("htpc"), "{extra}");
         assert!(extra.len() < 300, "{}", extra.len());
         let path = "/video/:/transcode/universal/start.m3u8";
+        assert!(q.contains("subtitles=none"));
+        assert!(!q.contains("subtitleStreamID"));
+        let burned = build_hls_universal_query("/library/metadata/42", &"ab".repeat(16), 0, 0, "lan", "11111111-1111-4111-8111-111111111111", "Linux", "0.1.0", Some(4481));
+        assert!(burned.contains("subtitles=burn") && burned.contains("subtitleStreamID=4481"), "{burned}");
+        assert!(!burned.to_ascii_lowercase().contains("token"));
+        assert!(playback_path_ok(path, Some(&burned)), "{burned}");
         assert!(playback_path_ok(path, Some(&q)), "{q}");
         assert!(playback_path_ok("/video/:/transcode/universal/decision", Some(&q)));
         // legacy directStream=1 is still a legal query; the builder never emits it

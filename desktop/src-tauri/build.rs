@@ -9,7 +9,7 @@ fn main() {
         "source_get", "auth_start", "auth_cancel", "servers_list", "server_connect", "manual_probe",
         "sign_out", "prefs_get", "prefs_set", "ai_key_set", "ai_key_has",
         "browse_home", "browse_section", "browse_section_hubs", "browse_facet", "browse_collections", "browse_collection",
-        "browse_item", "browse_children", "browse_search", "play_start", "opaque_get", "playback_stop", "manual_confirm", "ai_migration_failed", "browse_letters", "version_pick",
+        "browse_item", "browse_children", "browse_search", "play_start", "opaque_get", "playback_stop", "playback_timeline", "playback_thumb", "manual_confirm", "ai_migration_failed", "browse_letters", "version_pick",
         "browse_person", "browse_related", "account_me", "mark_watched",
         "watchlist_list", "watchlist_add", "watchlist_remove",
     ];

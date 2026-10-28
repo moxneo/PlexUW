@@ -476,7 +476,7 @@ pub mod lib {
         ok(v)
     }
     pub fn serve(p: &str, query: &str) -> Option<Result<(&'static str, Vec<u8>), u16>> {
-        if p == "/:/scrobble" || p == "/:/unscrobble" { return ok(json!({"MediaContainer":{"size":0}})); }
+        if p == "/:/scrobble" || p == "/:/unscrobble" || p == "/:/timeline" { return ok(json!({"MediaContainer":{"size":0}})); }
         let seg: Vec<&str> = p.trim_start_matches('/').split('/').collect();
         let movies: Vec<Value> = (0..N_MOVIES).map(movie).collect();
         if p == "/library/all" {

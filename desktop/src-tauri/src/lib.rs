@@ -88,7 +88,16 @@ fn restore(win: &WebviewWindow, st: &WinState) {
             }
         }
     }
-    if st.maximized { let _ = win.maximize(); }
+    if st.maximized {
+        // Undecorated OS maximize uses the full monitor and slides under the taskbar.
+        // Windowed mode fills the work area; fullscreen still uses rcMonitor.
+        #[cfg(windows)]
+        { fill_work_area(win); }
+        #[cfg(not(windows))]
+        { let _ = win.maximize(); }
+    } else {
+        fit_work_area(win);
+    }
     if st.fullscreen {
         let _ = win.set_fullscreen(true);
         cover_taskbar(win, true);
@@ -141,6 +150,93 @@ fn cover_taskbar(win: &WebviewWindow, enter: bool) {
 #[cfg(not(windows))]
 fn cover_taskbar(_win: &WebviewWindow, _enter: bool) {}
 
+/// Keep a windowed (not fullscreen) frame inside the monitor work area so the
+/// bottom player bar sits above the taskbar. Fullscreen stays on `rcMonitor`
+/// inside `cover_taskbar` and must not call this.
+#[cfg(windows)]
+fn win_hwnd(win: &WebviewWindow) -> Option<windows_sys::Win32::Foundation::HWND> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let handle = win.window_handle().ok()?;
+    let RawWindowHandle::Win32(raw) = handle.as_raw() else { return None };
+    Some(raw.hwnd.get() as windows_sys::Win32::Foundation::HWND)
+}
+
+#[cfg(windows)]
+fn read_work(hwnd: windows_sys::Win32::Foundation::HWND) -> Option<(i32, i32, i32, i32)> {
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    unsafe {
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) == 0 { return None; }
+        let r = mi.rcWork;
+        Some((r.left, r.top, r.right, r.bottom))
+    }
+}
+
+#[cfg(windows)]
+fn place_work(win: &WebviewWindow, fill: bool) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetWindowPos, HWND_TOP, SWP_SHOWWINDOW};
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    if win.is_fullscreen().unwrap_or(false) { return; }
+    if BUSY.swap(true, Ordering::SeqCst) { return; }
+    let Some(hwnd) = win_hwnd(win) else { BUSY.store(false, Ordering::SeqCst); return; };
+    let Some((l, t, r, b)) = read_work(hwnd) else { BUSY.store(false, Ordering::SeqCst); return; };
+    unsafe {
+        let mut wr: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut wr) == 0 { BUSY.store(false, Ordering::SeqCst); return; }
+        let max_w = (r - l).max(960);
+        let max_h = (b - t).max(600);
+        let (x, y, w, h) = if fill {
+            (l, t, max_w, max_h)
+        } else {
+            let mut w = (wr.right - wr.left).clamp(960, max_w);
+            let mut h = (wr.bottom - wr.top).clamp(600, max_h);
+            let mut x = wr.left;
+            let mut y = wr.top;
+            if x < l { x = l; }
+            if y < t { y = t; }
+            if x + w > r { x = r - w; }
+            if y + h > b { y = b - h; }
+            if x < l { x = l; }
+            if y < t { y = t; }
+            (x, y, w, h)
+        };
+        let near = |a: i32, b: i32| (a - b).abs() <= 2;
+        if !(near(x, wr.left) && near(y, wr.top) && near(w, wr.right - wr.left) && near(h, wr.bottom - wr.top)) {
+            SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_SHOWWINDOW);
+        }
+    }
+    BUSY.store(false, Ordering::SeqCst);
+}
+
+#[cfg(windows)]
+fn fit_work_area(win: &WebviewWindow) { place_work(win, false); }
+
+#[cfg(windows)]
+fn fill_work_area(win: &WebviewWindow) { place_work(win, true); }
+
+#[cfg(windows)]
+fn work_filled(win: &WebviewWindow) -> bool {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let Some(hwnd) = win_hwnd(win) else { return false; };
+    let Some((l, t, r, b)) = read_work(hwnd) else { return false; };
+    unsafe {
+        let mut wr: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut wr) == 0 { return false; }
+        (wr.left - l).abs() <= 8 && (wr.top - t).abs() <= 8 && (wr.right - r).abs() <= 8 && (wr.bottom - b).abs() <= 8
+    }
+}
+
+#[cfg(not(windows))]
+fn fit_work_area(_win: &WebviewWindow) {}
+#[cfg(not(windows))]
+#[allow(dead_code)]
+fn fill_work_area(_win: &WebviewWindow) {}
+
 /// Sentinel INFO-2: window-control failures return one fixed category; the
 /// platform error text is never passed to the UI.
 pub const WIN_ERR: &str = "window-unavailable";
@@ -156,9 +252,32 @@ fn win_minimize(app: AppHandle) -> Result<(), String> { main_win(&app)?.minimize
 #[tauri::command]
 fn win_toggle_maximize(app: AppHandle) -> Result<bool, String> {
     let w = main_win(&app)?;
-    let m = w.is_maximized().map_err(win_err)?;
-    if m { w.unmaximize() } else { w.maximize() }.map_err(win_err)?;
-    Ok(!m)
+    if w.is_fullscreen().unwrap_or(false) { return Ok(true); }
+    #[cfg(windows)]
+    {
+        // OS maximize on an undecorated window covers the taskbar. Toggle the work area instead.
+        if w.is_maximized().unwrap_or(false) { let _ = w.unmaximize(); }
+        if work_filled(&w) {
+            if let Some(hwnd) = win_hwnd(&w) {
+                if let Some((l, t, r, b)) = read_work(hwnd) {
+                    let ww = ((r - l) as f64 * 0.8) as i32;
+                    let hh = ((b - t) as f64 * 0.8) as i32;
+                    let _ = w.set_size(PhysicalSize::new(ww.max(960) as u32, hh.max(600) as u32));
+                    let _ = w.set_position(PhysicalPosition::new(l + (r - l - ww.max(960)) / 2, t + (b - t - hh.max(600)) / 2));
+                }
+            }
+            fit_work_area(&w);
+            return Ok(false);
+        }
+        fill_work_area(&w);
+        return Ok(true);
+    }
+    #[cfg(not(windows))]
+    {
+        let m = w.is_maximized().map_err(win_err)?;
+        if m { w.unmaximize() } else { w.maximize() }.map_err(win_err)?;
+        Ok(!m)
+    }
 }
 
 #[tauri::command]
@@ -174,6 +293,7 @@ fn win_toggle_fullscreen(app: AppHandle) -> Result<bool, String> {
     if !f { cover_taskbar(&w, false); }
     w.set_fullscreen(f).map_err(win_err)?;
     if f { cover_taskbar(&w, true); }
+    else { fit_work_area(&w); }
     Ok(f)
 }
 
@@ -193,7 +313,7 @@ macro_rules! handlers { () => { tauri::generate_handler![
             commands::prefs_get, commands::prefs_set, commands::ai_key_set, commands::ai_key_has,
             commands::browse_home, commands::browse_section, commands::browse_section_hubs, commands::browse_facet,
             commands::browse_collections, commands::browse_collection, commands::browse_item, commands::version_pick, commands::browse_children, commands::browse_person, commands::browse_related,
-            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters,
+            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters,
             commands::account_me, commands::mark_watched, commands::watchlist_list, commands::watchlist_add, commands::watchlist_remove
         ] }; }
 #[cfg(feature = "mockplex")]
@@ -204,7 +324,7 @@ macro_rules! handlers { () => { tauri::generate_handler![
             commands::prefs_get, commands::prefs_set, commands::ai_key_set, commands::ai_key_has,
             commands::browse_home, commands::browse_section, commands::browse_section_hubs, commands::browse_facet,
             commands::browse_collections, commands::browse_collection, commands::browse_item, commands::version_pick, commands::browse_children, commands::browse_person, commands::browse_related,
-            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters, commands::shot_id,
+            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters, commands::shot_id,
             commands::account_me, commands::mark_watched, commands::watchlist_list, commands::watchlist_add, commands::watchlist_remove
         ] }; }
 
@@ -299,6 +419,8 @@ pub fn run() {
             win.on_window_event(move |e| {
                 if matches!(e, WindowEvent::Resized(_)) && w2.is_fullscreen().unwrap_or(false) {
                     cover_taskbar(&w2, true);
+                } else if matches!(e, WindowEvent::Resized(_) | WindowEvent::Moved(_)) && !w2.is_fullscreen().unwrap_or(false) {
+                    fit_work_area(&w2);
                 }
                 match e {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } => {
@@ -331,9 +453,13 @@ mod win_err_tests {
     #[test]
     fn fullscreen_covers_the_monitor() {
         let src = include_str!("lib.rs");
-        assert!(src.contains("rcMonitor"), "fullscreen must use the full monitor rect");
-        assert!(!src.contains(concat!("rc", "Work")), "the work area is what leaves the taskbar strip");
+        let start = src.find("fn cover_taskbar(").expect("cover_taskbar");
+        let end = src.find("fn cover_taskbar(_win").expect("stub");
+        let body = &src[start..end];
+        assert!(body.contains("rcMonitor"), "fullscreen must use the full monitor rect");
+        assert!(!body.contains(concat!("rc", "Work")), "fullscreen must not size to the work area");
         assert!(src.contains("WS_THICKFRAME"));
-        assert!(src.contains("fn cover_taskbar"));
+        assert!(src.contains("fn fit_work_area"));
+        assert!(src.contains(concat!("rc", "Work")), "windowed mode clamps to the work area");
     }
 }

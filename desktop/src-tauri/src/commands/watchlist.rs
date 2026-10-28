@@ -226,7 +226,7 @@ mod t {
             source: Mutex::new(Box::new(MockSource { reason: "first-run" })),
             prefs: Mutex::new(Prefs::default()), prefs_path: dir.join("s.json"),
             images: Images::default(), hls: HlsMap::default(), conn_gen: AtomicU64::new(0), cache_dir: dir.join("imgcache"),
-            slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(),
+            slots: Default::default(), sticky: Default::default(), conns: Default::default(), mx: Default::default(), timeline: Default::default(),
         });
         if token {
             p.set_servers(crate::plex::api::load_resources(&e).await.unwrap());

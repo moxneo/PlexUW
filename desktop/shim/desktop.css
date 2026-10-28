@@ -429,6 +429,10 @@ body.desktop.plexmode #main>.topbar{display:none!important}
 .pxhleft{font:650 15px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f4f4f4;margin:0 0 10px}
 .pxresume{display:inline-flex;align-items:center;gap:8px;margin-top:14px;height:46px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#e5a00d;color:#111;font:700 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .pxresume .ic{width:18px;height:18px;stroke:#111}
+.pxcwplay{position:absolute;left:50%;top:50%;z-index:3;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:#e5a00d;color:#111;display:grid;place-items:center;pointer-events:none;box-shadow:0 6px 16px rgba(0,0,0,.45)}
+.pxcwplay .ic{width:20px;height:20px}
+.pxcwplay .ic path{fill:#111;stroke:none}
+.pxstrip.pxcw .pxcard:hover .pxcwplay,.pxstrip.pxcw .pxcard:focus-visible .pxcwplay{filter:brightness(1.08)}
 .pxresume:hover,.pxresume:focus-visible{filter:brightness(1.06)}
 @media (max-height:860px){
  .pxhomehero .pxsum{display:none}
@@ -624,3 +628,10 @@ body.desktop .profile .pxname{min-width:0;overflow:hidden;white-space:nowrap;tex
     font-size:12px!important;background:none!important;color:#8a92a5!important;
   }
 }
+#pxEsc{position:fixed;inset:0;z-index:80;display:grid;place-items:center}
+#pxEsc[hidden]{display:none}
+#pxEsc .pxescbg{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+#pxEsc .pxesc{position:relative;display:flex;flex-direction:column;gap:6px;min-width:240px;padding:10px;border-radius:14px;background:rgba(20,20,22,.92);border:1px solid rgba(255,255,255,.14);box-shadow:0 16px 40px rgba(0,0,0,.45)}
+#pxEsc button{height:40px;border:0;border-radius:10px;background:transparent;color:#f2f2f2;font:600 15px/1 system-ui,sans-serif;text-align:left;padding:0 12px;cursor:pointer}
+#pxEsc button:hover{background:rgba(255,255,255,.1)}
+#pxEsc button:disabled{opacity:.4;cursor:default}

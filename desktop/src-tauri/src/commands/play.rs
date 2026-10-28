@@ -281,9 +281,9 @@ async fn prove_hls(p: &Plex, mid: &str, conn: &Conn, slots: &mut Vec<Slot>) -> R
     Ok(())
 }
 
-async fn start_hls(p: &Plex, mid: &str, conn: &Conn, rk: u64, media_index: usize, off: u64) -> Result<String, String> {
+async fn start_hls(p: &Plex, mid: &str, conn: &Conn, rk: u64, media_index: usize, off: u64, subtitle_stream: Option<u64>) -> Result<String, String> {
     let platform = if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" };
-    let pair = play::build_hls_pair(rk, media_index, off, location(conn.kind), &p.egress.client_id, platform, env!("CARGO_PKG_VERSION"));
+    let pair = play::build_hls_pair(rk, media_index, off, location(conn.kind), &p.egress.client_id, platform, env!("CARGO_PKG_VERSION"), subtitle_stream);
     let dec = fetch(p, mid, conn, &pair.decision, "application/json", Duration::from_secs(30), DECISION_MAX, None).await.map_err(|e| {
         play_note("decision", 0, &format!("err={e}"));
         e
@@ -321,7 +321,7 @@ async fn start_hls(p: &Plex, mid: &str, conn: &Conn, rk: u64, media_index: usize
     Ok(format!("/hls/{master_id}"))
 }
 
-pub async fn start(p: &Arc<Plex>, id: &str, version_id: Option<&str>, offset_ms: u64) -> Result<PlayOut, String> {
+pub async fn start(p: &Arc<Plex>, id: &str, version_id: Option<&str>, offset_ms: u64, subtitle_index: Option<u32>) -> Result<PlayOut, String> {
     p.hls.clear();
     let (mut mid, mut rk) = super::mx::item_target(p, id).map_err(|_| "playback".to_string())?;
     let mut media_index = 0usize;
@@ -336,13 +336,45 @@ pub async fn start(p: &Arc<Plex>, id: &str, version_id: Option<&str>, offset_ms:
     let chosen = choose(&mc, media_index)?;
     let conn = conn_for(p, &mid)?;
     let off = offset_sec(offset_ms, chosen.duration_ms);
-    if play::webview_native(&chosen.container, &chosen.video, &chosen.audio) && part_ok(&chosen.part) && try_direct(p, &mid, &conn, &chosen.part).await.is_ok() {
+    // Subtitle index is the Nth streamType=3 on the playing media. Burn needs HLS;
+    // a direct play cannot carry PGS or SRT, so a chosen track skips the direct path.
+    let sub_id = subtitle_index.and_then(|i| nth_subtitle_id(&mc, chosen.media_index, i));
+    if sub_id.is_none() && play::webview_native(&chosen.container, &chosen.video, &chosen.audio) && part_ok(&chosen.part) && try_direct(p, &mid, &conn, &chosen.part).await.is_ok() {
         let id = play::opaque_id(&mid, &chosen.part);
         p.hls.insert(id.clone(), HlsEnt { mid: mid.clone(), upstream: chosen.part, body: None, content_type: "video/mp4".into() });
+        p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms);
         return Ok(PlayOut { kind: "direct".into(), url: format!("/media/{id}"), duration_ms: chosen.duration_ms });
     }
-    let url = start_hls(p, &mid, &conn, rk, chosen.media_index, off).await?;
+    let url = start_hls(p, &mid, &conn, rk, chosen.media_index, off, sub_id).await?;
+    p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms);
     Ok(PlayOut { kind: "hls".into(), url, duration_ms: chosen.duration_ms })
+}
+
+/// Same ordinal `av_tracks` shows the UI: streamType 3, skipping streams with no label, cap 8.
+fn nth_subtitle_id(mc: &serde_json::Value, media_index: usize, index: u32) -> Option<u64> {
+    if index > 7 { return None; }
+    let meta = mc.get("Metadata")?.get(0)?;
+    let medias = meta.get("Media")?.as_array()?;
+    let idx = if media_index < medias.len() { media_index } else { 0 };
+    let streams = medias.get(idx)?.get("Part")?.as_array()?.first()?.get("Stream")?.as_array()?;
+    let mut n = 0u32;
+    for st in streams {
+        if st.get("streamType").and_then(|x| x.as_u64()).unwrap_or(0) != 3 { continue; }
+        let disp = st.get("displayTitle").and_then(|x| x.as_str()).unwrap_or("");
+        let lang = st.get("language").and_then(|x| x.as_str()).unwrap_or("");
+        let codec = st.get("codec").and_then(|x| x.as_str()).unwrap_or("");
+        if disp.is_empty() && lang.is_empty() && codec.is_empty() { continue; }
+        let low = disp.to_ascii_lowercase();
+        if disp.contains(['/', '\\']) || low.contains("://") || low.contains("token") { continue; }
+        if n == index {
+            let id = st.get("id").and_then(|x| x.as_u64())?;
+            if id == 0 || id > 999_999_999_999 { return None; }
+            return Some(id);
+        }
+        n += 1;
+        if n >= 8 { break; }
+    }
+    None
 }
 
 fn opaque_bad(status: u16) -> OpaqueOut {
@@ -425,6 +457,21 @@ pub async fn proxy_bytes(p: &Arc<Plex>, id: &str, range: Option<&str>) -> super:
 #[cfg(test)]
 mod t {
     use super::*;
+
+    #[test]
+    fn nth_subtitle_matches_ui_ordinal() {
+        let mc = serde_json::json!({"Metadata":[{"Media":[{"Part":[{"Stream":[
+            {"id":1,"streamType":2,"displayTitle":"English"},
+            {"id":11,"streamType":3,"displayTitle":"English"},
+            {"id":12,"streamType":3,"displayTitle":"English (SDH)"},
+            {"id":13,"streamType":3,"codec":"srt","language":"Italiano"},
+            {"id":14,"streamType":3,"displayTitle":"Italiano"},
+            {"id":99,"streamType":3,"displayTitle":"https://evil.example/a?token=sekrit"}
+        ]}]}]}]});
+        assert_eq!(nth_subtitle_id(&mc, 0, 0), Some(11));
+        assert_eq!(nth_subtitle_id(&mc, 0, 3), Some(14));
+        assert_eq!(nth_subtitle_id(&mc, 0, 4), None);
+    }
 
     #[test]
     fn choose_uses_present_media_index() {

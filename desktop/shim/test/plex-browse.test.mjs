@@ -144,6 +144,9 @@ test('home hero is continue-watching chrome and is not repeated as a strip card'
   assert.match(src, /x\.id === hi\.id\) return false/);
   assert.match(src, /row\('Continue Watching', cwAll\.filter\(notHi\), false, true\)/);
   assert.match(src, /export function cwMeter\(it\)/);
+  assert.match(src, /sec\.classList\.contains\('pxcw'\)/);
+  assert.match(src, /pxcwplay/);
+  assert.match(src, /g\.appendChild\(playMark\(\)\)/);
 });
 test('episode cards: continue watching keeps the still; small TV cards use the series cover', () => {
   const ep = { kind: 'episode', thumb: 'still', art: 'fan', poster: 'cover' };
@@ -187,6 +190,8 @@ test('strip chevrons: both ends mid-scroll, left hidden on the first tile', asyn
   assert.match(css, /\.pxstrip\.pxcw \.pxstw\{width:calc\(100% \+ 2 \* var\(--px-gutter\)\)/);
   assert.match(css, /\.pxstrip\.pxcw \.pxstw\{[^}]*column-gap:0\}/);
   assert.match(css, /\.pxstrip\.pxcw \.pxsts\{padding-left:0;padding-right:0/);
+  assert.match(css, /\.pxcwplay\{[^}]*background:#e5a00d/);
+  assert.match(css, /\.pxcwplay \.ic path\{fill:#111;stroke:none\}/);
   assert.match(css, /\.pxbackdrop\{transition:opacity 1100ms ease-in-out\}/);
   assert.match(css, /transition:opacity 1400ms ease-in-out/);
   assert.match(css, /\.pxfeatmenu\{[^}]*background:var\(--px-glass\)/);
@@ -288,4 +293,52 @@ test('parity tip: section hubs, play row, watch-together stub, no stream URI', (
   assert.doesNotMatch(src, /plex\.tv\/watch|watch\.plex\.tv|Start watch together/);
   assert.doesNotMatch(src, /audioStreamID|subtitleStreamID/);
   assert.equal((src.match(/versionsList\(it\)\)/g) || []).length, 1);
+});
+test('subtitle control paints a menu, including an empty state, and keeps the bar up', () => {
+  const app = readFileSync(join(here, '..', '..', '..', 'app.js'), 'utf8');
+  assert.match(app, /function paintCc\(info\)/);
+  assert.match(app, /No subtitles/);
+  assert.match(app, /ccPop\.hidden=false/);
+  assert.match(app, /aria-haspopup','menu'/);
+  assert.match(app, /const ccEl=\$\('#ccPop'\), cc=!!\(ccEl&&!ccEl\.hidden\)/);
+  assert.match(app, /window\.__pxPickSub\(n<0\?null:n\)/);
+  assert.doesNotMatch(app, /toast\('No subtitles'\)/);
+  const slice = app.slice(app.indexOf('function closeCc'), app.indexOf('function paintLiveChap'));
+  const bCc = { hidden: false, attrs: {}, classList: { toggle() {} }, setAttribute(k, v) { this.attrs[k] = v; } };
+  const bar = { children: [], appendChild(c) { this.children.push(c); } };
+  const gear = { hidden: false };
+  const made = [];
+  const prev = globalThis.document;
+  globalThis.document = {
+    createElement() {
+      const n = { hidden: true, className: '', attrs: {}, innerHTML: '', setAttribute(k, v) { this.attrs[k] = v; } };
+      made.push(n); return n;
+    },
+    addEventListener() {},
+  };
+  const $ = s => s === '#bar' ? bar : s === '#gearMenu' ? gear : null;
+  let ctx = {};
+  const picked = [];
+  const api = new Function('bCc', '$', 'vid', 'plexNow', 'plexCtx', 'esc', 'toast', 'chrome', 'window', `let ccPop=null;
+    ${slice}
+    return { open() { bCc.onclick({ stopPropagation() {} }); }, pop: () => ccPop };`)(
+    bCc, $, { textTracks: [] }, () => !!(ctx.subs && ctx.subs.length), () => ctx, s => String(s), () => {}, () => {},
+    { __pxPickSub(n) { picked.push(n); } });
+  api.open();
+  assert.equal(api.pop().hidden, false);
+  assert.match(api.pop().innerHTML, /Subtitles/);
+  assert.match(api.pop().innerHTML, /No subtitles/);
+  assert.equal(bCc.attrs['aria-expanded'], 'true');
+  assert.equal(gear.hidden, true);
+  api.open();
+  assert.equal(api.pop().hidden, false, 'a second click still shows the menu');
+  ctx = { subs: [{ i: 0, label: 'English' }, { i: 1, label: 'Spanish' }], subIndex: -1 };
+  api.open();
+  assert.match(api.pop().innerHTML, /English/);
+  assert.match(api.pop().innerHTML, /data-sub="1"/);
+  api.pop().onclick({ target: { closest(sel) { return sel === '[data-sub]' ? { dataset: { sub: '1' } } : null; } } });
+  assert.deepEqual(picked, [1]);
+  assert.equal(api.pop().hidden, true);
+  if (prev === undefined) delete globalThis.document; else globalThis.document = prev;
+  assert.equal(made.length, 1);
 });

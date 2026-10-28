@@ -244,6 +244,19 @@ pub fn scrobble_query_ok(q: Option<&str>) -> bool {
     idn == Some("com.plexapp.plugins.library") && key_ok
 }
 
+/// Progress. Exactly five pairs: ratingKey, key, state, time, duration. No token.
+pub fn timeline_query_ok(q: Option<&str>) -> bool {
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.unwrap_or("").as_bytes()).into_owned().collect();
+    if pairs.len() != 5 { return false; }
+    let get = |k: &str| pairs.iter().find(|(a, _)| a == k).map(|(_, v)| v.as_str());
+    let digits = |s: &str| !s.is_empty() && s.len() <= 12 && s.bytes().all(|b| b.is_ascii_digit());
+    match (get("ratingKey"), get("key"), get("state"), get("time"), get("duration")) {
+        (Some(rk), Some(key), Some(state), Some(time), Some(dur))
+            if digits(rk) && digits(time) && digits(dur) && matches!(state, "playing" | "paused" | "stopped") && key == format!("/library/metadata/{rk}") => true,
+        _ => false,
+    }
+}
+
 /// Server-token path allowlist (M2 browsing, §3 / §6a M3). Exact shapes only:
 /// numeric ids, no free-form segments. `/photo/:/transcode` additionally requires a
 /// server-relative `url=/library/metadata/<id>/(thumb|art)[/<n>]` (§6a M5).
@@ -260,6 +273,7 @@ pub fn server_path(p: &str, q: Option<&str>) -> bool {
         r"|photo/:/transcode)$")).unwrap());
     if crate::plex::play::playback_path_ok(p, q) { return true; }
     if p == "/:/scrobble" || p == "/:/unscrobble" { return scrobble_query_ok(q); }
+    if p == "/:/timeline" { return timeline_query_ok(q); }
     if !re.is_match(p) { return false; }
     if p == "/photo/:/transcode" {
         let url = q.and_then(|q| url::form_urlencoded::parse(q.as_bytes()).find(|(k, _)| k == "url").map(|(_, v)| v.into_owned()));
@@ -515,6 +529,15 @@ mod t {
         assert!(!server_path("/:/scrobble", Some("identifier=com.plexapp.plugins.library&key=%2Flibrary%2Fmetadata%2F1003&X-Plex-Token=sekrit")));
         assert!(!server_path("/:/scrobble", Some("identifier=com.plexapp.plugins.library&key=https%3A%2F%2Fevil.example")));
         assert!(!server_path("/:/scrobble", None));
+        let tl = "ratingKey=1003&key=%2Flibrary%2Fmetadata%2F1003&state=playing&time=12000&duration=5400000";
+        assert!(timeline_query_ok(Some(tl)));
+        assert!(server_path("/:/timeline", Some(tl)));
+        assert!(server_path("/:/timeline", Some("ratingKey=1003&key=%2Flibrary%2Fmetadata%2F1003&state=paused&time=0&duration=1")));
+        assert!(server_path("/:/timeline", Some("ratingKey=1003&key=%2Flibrary%2Fmetadata%2F1003&state=stopped&time=9&duration=9")));
+        assert!(!server_path("/:/timeline", Some(&format!("{tl}&X-Plex-Token=sekrit"))));
+        assert!(!server_path("/:/timeline", Some("ratingKey=1003&key=%2Flibrary%2Fmetadata%2F9999&state=playing&time=1&duration=2")));
+        assert!(!server_path("/:/timeline", Some("ratingKey=1003&key=%2Flibrary%2Fmetadata%2F1003&state=buffering&time=1&duration=2")));
+        assert!(!server_path("/:/timeline", None));
     }
     #[test]
     fn server_token_bound_to_its_own_hosts() {
