@@ -164,9 +164,9 @@ var openOrder=[];
 const toggle=(id,force,quiet)=>{const p=$(id),was=p.classList.contains('open'),now=force===undefined?!was:force;
   if(now){const other=id==='#pDetails'?'#pUpnext':'#pDetails';$(other).classList.remove('open');openOrder=openOrder.filter(x=>x!==other);}
   p.classList.toggle('open',now);openOrder=openOrder.filter(x=>x!==id);if(now)openOrder.push(id);
-  if(now&&!was)setTimeout(()=>{const pc=p.querySelector('.pc');if(pc)pc.focus({preventScroll:true})},30);
+  if(now&&!was){if(id==='#pUpnext')p.dataset.upAt=String(performance.now());setTimeout(()=>{const pc=p.querySelector('.pc');if(pc)pc.focus({preventScroll:true})},30);}
   if(!now&&was&&p.contains(document.activeElement)){const back=$(id==='#pDetails'?'#hL':'#hR');if(back)back.focus({preventScroll:true})}if(!quiet)showUI();renderPanels();$('#bD').classList.toggle('on',$('#pDetails').classList.contains('open'));$('#bU2').classList.toggle('on',$('#pUpnext').classList.contains('open'));$('#bU').classList.toggle('on',$('#pUpnext').classList.contains('open'));layout();vis();};
-$('#bD').onclick=$('#hL').onclick=()=>toggle('#pDetails');$('#bU').onclick=$('#hR').onclick=()=>toggle('#pUpnext');$('#scrim').onclick=()=>{toggle('#pDetails',false);toggle('#pUpnext',false)};
+$('#bD').onclick=$('#hL').onclick=()=>toggle('#pDetails');$('#bU').onclick=()=>toggle('#pUpnext');$('#hR').onclick=e=>{e.preventDefault();e.stopPropagation();const p=$('#pUpnext');if(!p.classList.contains('open')||performance.now()-+(p.dataset.upAt||0)<450)toggle('#pUpnext',true);else toggle('#pUpnext')};$('#scrim').onclick=()=>{toggle('#pDetails',false);toggle('#pUpnext',false)};
 $('#back').onclick=()=>location.hash='#home';
 $('#bF').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});
 const PLAY_PATH='<path fill="currentColor" d="M9 7.2v9.6a.6.6 0 0 0 .9.5l7.4-4.8a.6.6 0 0 0 0-1L9.9 6.7a.6.6 0 0 0-.9.5z"/>';
@@ -253,17 +253,9 @@ if(bCc){
 }
 function paintLiveChap(){
   if(!plexNow()||!cur.chapters||cur.chapters.length<2){seek.classList.remove('chaplive');return}
-  // A hover owns the tile. Repainting the chapter start here is what left 33:32 up at the playhead.
+  // A hover owns the tile. Leaving the bar must not keep the preview up at the playhead.
   if(seek.matches(':hover'))return;
-  const d=dur(); if(!(d>0))return;
-  const f=(vid.currentTime||0)/d,k=chapAt(f);
-  if(k===seek._chapK)return; seek._chapK=k;
-  const c=cur.chapters[k]||{t:'',at:0},r=seek.getBoundingClientRect(),thumb=$('#thumb');
-  thumb.style.left=Math.max(80,Math.min((r.width||0)-80,(c.at||f)*(r.width||0)))+'px';
-  thumb.dataset.k=k;
-  $('#thumbt').innerHTML=`<b>${k+1}. ${esc(c.t||'')}</b><span>${fmt((c.at||0)*d)}</span>`;
-  const cvs=$('#thumbimg'); if(cvs&&vid.videoWidth){try{cvs.getContext('2d').drawImage(vid,0,0,cvs.width,cvs.height)}catch(err){}}
-  seek.classList.add('chaplive');
+  seek.classList.remove('chaplive');
 }
 vid.ontimeupdate=()=>{const d=dur(),p=d>0?vid.currentTime/d*100:0;$('#prog').style.width=`calc((100% - 4px) * ${p/100})`;$('#knob').style.left=`calc(2px + (100% - 4px) * ${p/100})`;$('#tcur').textContent=hms(vid.currentTime||0);paintDur();paintLiveChap();if(mode==='smart')sampleSmart()};
 vid.onseeked=vid.onloadedmetadata=()=>{vid.ontimeupdate();applyStretch();sampleAmbient()};
@@ -276,7 +268,7 @@ seek.onmousemove=e=>{const r=seek.getBoundingClientRect(),f=hovF=Math.max(0,Math
   const frame=f*(d||0),cvs=$('#thumbimg');
   if(cvs&&typeof window.__pxScrubTo==='function')window.__pxScrubTo(frame,cvs);
   $('#thumbt').innerHTML=`<b>${k+1}. ${esc(c.t)}</b><span>${fmt(frame)}</span>`};
-seek.addEventListener('mouseleave',()=>{if(typeof window.__pxScrubStop==='function')window.__pxScrubStop()});
+seek.addEventListener('mouseleave',()=>{seek.classList.remove('chaplive');if(typeof window.__pxScrubStop==='function')window.__pxScrubStop()});
 seek.onclick=e=>{const d=dur(),ti=e.target.closest('#chaps i'),th=e.target.closest('#thumb');
   if(ti||th){const k=+(ti||th).dataset.k;vid.currentTime=cur.chapters[k].at*d;toast(`Chapter ${k+1}: ${cur.chapters[k].t}`);}
   else{const r=seek.getBoundingClientRect();vid.currentTime=(e.clientX-r.left)/r.width*d}};
@@ -394,7 +386,7 @@ function paintPlexDrawers(){
     t.textContent=x.kind==='episode'?('E'+(x.index||'?')+' · '+x.title):x.title;
     const m=document.createElement('div');m.className='muted small';m.textContent=x.kind==='episode'?(typeof x.show==='string'?x.show:''):String(x.year||'');
     tx.appendChild(t);tx.appendChild(m);row.appendChild(tx);
-    const go=ev=>{ev.stopPropagation();if(/^[0-9a-f]{24}$/.test(String(x.id||'')))location.hash='#px/item/'+x.id;};
+    const go=ev=>{ev.stopPropagation();const panel=row.closest&&row.closest('#pUpnext');const at=panel&&panel.dataset?+(panel.dataset.upAt||0):0;if(at&&performance.now()-at<450)return;if(/^[0-9a-f]{24}$/.test(String(x.id||'')))location.hash='#px/item/'+x.id;};
     row.addEventListener('click',go);row.addEventListener('keydown',ev=>{if(ev.key==='Enter')go(ev);});
     u.appendChild(row);
   });
@@ -634,6 +626,7 @@ function armEdge(els,id){
   $(id).addEventListener('mouseleave',leave);
 }
 armEdge([$('#hL'),$('#stripL')],'#pDetails');armEdge([$('#hR'),$('#stripR')],'#pUpnext');
+$('#stripR').onclick=e=>{e.preventDefault();e.stopPropagation();toggle('#pUpnext',true)};
 // first-run pulse + hint, remembered
 if(!localStorage.getItem('plexuw.edgehint')&&!qs.has('nohint')){st.classList.add('pulse');$('#edgeHint').hidden=false;
   const dismiss=()=>{st.classList.remove('pulse');$('#edgeHint').hidden=true;localStorage.setItem('plexuw.edgehint','1')};

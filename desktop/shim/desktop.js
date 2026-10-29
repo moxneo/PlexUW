@@ -10,9 +10,65 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
 (function(){
   const T=TAURI; if(!T||!T.core) return; // plain browser: do nothing
   const invoke=T.core.invoke, body=document.body; body.classList.add('desktop');
-  // Splash (lockup mark)
-  const sp=document.createElement('div');sp.id='dtSplash';sp.innerHTML='<img src="brand/plexuw-lockup-dark.svg" alt="PlexUW">';body.appendChild(sp);
-  setTimeout(()=>{sp.classList.add('out');setTimeout(()=>sp.remove(),450)},new URLSearchParams(location.search).get('splash')==='hold'?1e9:1100);
+  // Boot intro, once per app start (this script does not run again on hash navigations).
+  // A 16:9 monitor plays while Home thumbnails decode, then widens into the lockup.
+  body.classList.add('pxboot');
+  const sp=document.createElement('div');sp.id='dtSplash';sp.setAttribute('role','img');sp.setAttribute('aria-label','PlexUW');
+  const stage=document.createElement('div');stage.className='dti';
+  const NS='http://www.w3.org/2000/svg';
+  const svg=document.createElementNS(NS,'svg');svg.setAttribute('class','dti-bezel');svg.setAttribute('viewBox','0 0 1600 900');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
+  const defs=document.createElementNS(NS,'defs');
+  const lg=document.createElementNS(NS,'linearGradient');lg.setAttribute('id','dtiGl');lg.setAttribute('x1','0');lg.setAttribute('y1','0');lg.setAttribute('x2','0');lg.setAttribute('y2','1');
+  const s0=document.createElementNS(NS,'stop');s0.setAttribute('offset','0');s0.setAttribute('stop-color','#33405A');
+  const s1=document.createElementNS(NS,'stop');s1.setAttribute('offset','1');s1.setAttribute('stop-color','#141A26');
+  lg.appendChild(s0);lg.appendChild(s1);defs.appendChild(lg);svg.appendChild(defs);
+  const D='M70 150Q70 80 150 96Q800 170 1450 96Q1530 80 1530 150L1530 760Q1530 840 1450 840L150 840Q70 840 70 760Z';
+  const glass=document.createElementNS(NS,'path');glass.setAttribute('d',D);glass.setAttribute('fill','url(#dtiGl)');
+  const rim=document.createElementNS(NS,'path');rim.setAttribute('d',D);rim.setAttribute('fill','none');rim.setAttribute('stroke','#E4ECF8');rim.setAttribute('stroke-opacity','.6');rim.setAttribute('stroke-width','10');
+  svg.appendChild(glass);svg.appendChild(rim);
+  const live=document.createElement('div');live.className='dti-live';
+  ['#e25b3a','#3d8bfd','#e5a00d','#7d8cff','#d46a8a','#3ecf8e'].forEach((c,i)=>{const t=document.createElement('i');t.className='dti-tile';t.style.setProperty('--x',(2+i*13)+'%');t.style.setProperty('--d',(i*0.07)+'s');t.style.setProperty('--c',c);live.appendChild(t)});
+  const sweep=document.createElement('i');sweep.className='dti-sweep';live.appendChild(sweep);
+  const wedge=document.createElement('i');wedge.className='dti-wedge';live.appendChild(wedge);
+  const logo=document.createElement('img');logo.className='dti-logo';logo.alt='';logo.src='brand/plexuw-lockup-dark.svg';
+  stage.appendChild(svg);stage.appendChild(live);stage.appendChild(logo);sp.appendChild(stage);body.appendChild(sp);
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hold=new URLSearchParams(location.search).get('splash')==='hold';
+  if(reduce)sp.classList.add('pxquick','pxwide');
+  const settle=()=>{document.querySelectorAll('#pxView .poster img,#pxView .pxcase img').forEach(im=>{im.classList.add('in');im.style.transition='none';im.style.opacity='1'})};
+  const kick=()=>{const v=document.getElementById('pxView');if(!v)return;v.querySelectorAll('img').forEach(im=>{if(im.loading==='lazy')im.loading='eager'})};
+  let mo=null;
+  const thumbsReady=()=>{
+    if(!body.classList.contains('plexmode'))return false;
+    const view=document.getElementById('pxView');
+    if(!view||view.hidden)return false;
+    if(view.querySelector('.pxload'))return false;
+    const painted=view.querySelector('.pxhomehero,h1.pxh,.pxstatus');
+    const empty=[...view.querySelectorAll('p.muted')].some(n=>n.textContent==='Nothing here yet.');
+    const imgs=[...view.querySelectorAll('.poster img,.pxcase img')].slice(0,8);
+    if(!painted&&!empty&&!imgs.length)return false;
+    return imgs.every(im=>im.complete&&im.naturalWidth>0);
+  };
+  let done=false;
+  const finish=()=>{
+    if(done)return;done=true;settle();
+    sp.classList.add('out');
+    setTimeout(()=>{sp.remove();setTimeout(()=>{settle();if(mo){mo.disconnect();mo=null}body.classList.remove('pxboot')},700)},reduce?200:340);
+  };
+  if(hold){sp.classList.add('pxwide');body.classList.remove('pxboot')}
+  else{
+    mo=new MutationObserver(()=>{kick();settle()});mo.observe(body,{childList:true,subtree:true});
+    const t0=performance.now();
+    const poll=()=>{
+      if(done)return;
+      const elapsed=performance.now()-t0;
+      const ready=thumbsReady();
+      if(reduce){if(ready||elapsed>=3000)finish();else setTimeout(poll,80);return}
+      if((ready&&elapsed>=1200)||elapsed>=1750){sp.classList.add('pxwide');setTimeout(finish,700)}
+      else setTimeout(poll,80);
+    };
+    poll();
+  }
   // Frameless title bar
   const ic={min:'<svg viewBox="0 0 14 14"><path d="M2 7h10"/></svg>',max:'<svg viewBox="0 0 14 14"><rect x="2.5" y="2.5" width="9" height="9"/></svg>',close:'<svg viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8"/></svg>'};
   const tb=document.createElement('div');tb.id='dtTitle';

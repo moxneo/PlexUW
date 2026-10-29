@@ -1022,17 +1022,20 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   // the row even when this title resolved a single play source (Guns Up).
   function versionsList(it) {
     const w = el('div', 'pxvers'); w.setAttribute('role', 'list');
-    (it.versions || []).forEach(v => { const b = el('button', 'pxver' + (v.current ? ' cur' : '')); b.type = 'button'; b.setAttribute('role', 'listitem');
+    const chosen = selectedVersion(it);
+    (it.versions || []).forEach(v => { const on = chosen ? v === chosen : !!v.current; const b = el('button', 'pxver' + (on ? ' cur' : '')); b.type = 'button'; b.setAttribute('role', 'listitem');
       b.appendChild(el('b', null, v.label || 'Unknown'));
       b.appendChild(el('span', 'muted small', [v.hdr ? 'HDR' : '', (v.codec || '').toUpperCase(), v.bitrateKbps ? (v.bitrateKbps / 1000).toFixed(1) + ' Mbps' : ''].filter(Boolean).join(' · ')));
       if (v.server) b.appendChild(el('span', 'pxbadge' + (v.owned ? ' ow' : ' sh'), v.server + (v.owned ? ' · owned' : ' · shared')));
-      if (v.picked) b.appendChild(el('span', 'pxbadge pk', 'Preferred'));
-      b.title = v.current ? 'This copy' : 'Prefer this copy';
+      b.title = on ? 'This copy' : 'Prefer this copy';
       b.onclick = () => invoke('version_pick', { id: v.id }).then(() => {
-        (it.versions || []).forEach(x => { x.picked = x === v; });
-        w.querySelectorAll('.pxbadge.pk').forEach(x => x.remove()); /* LOW-C: every Preferred badge carries .pk, so only one survives */
-        b.appendChild(el('span', 'pxbadge pk', 'Preferred'));
-        const row = w.closest('.pxdtext') && w.closest('.pxdtext').querySelector('.pxround');
+        const vs = it.versions || [];
+        vs.forEach(x => { x.current = x === v; if (x !== v) x.picked = false; });
+        w.querySelectorAll('.pxver').forEach((x, i) => { const on = vs[i] === v; x.classList.toggle('cur', on); x.title = on ? 'This copy' : 'Prefer this copy'; });
+        const host = w.closest('.pxdtext');
+        const ready = host && host.querySelector('.pxready');
+        const n = readyLine(it); if (ready && n) ready.replaceWith(n);
+        const row = host && host.querySelector('.pxround');
         if (row) row.replaceWith(playRow(it));
       }).catch(() => {});
       w.appendChild(b); });
@@ -1103,9 +1106,6 @@ export function mountPlexBrowse(invoke, hooks = {}) {
   function pickedVersion(it) {
     const v = selectedVersion(it);
     return (v && v.id) || it.defaultVersion || null;
-  }
-  function choiceLabel(v) {
-    return [v.server, v.label, (v.codec || '').toUpperCase()].filter(x => typeof x === 'string' && x).join(' · ');
   }
   function readyLine(it) {
     const vs = it.versions || [];
@@ -1273,29 +1273,12 @@ export function mountPlexBrowse(invoke, hooks = {}) {
     const rb = (ic, lab, fn) => { const b = el('button', 'pxrb lab'); b.type = 'button'; b.title = lab; b.setAttribute('aria-label', lab); b.appendChild(ic.length === 1 ? el('span', 'pxglyph', ic) : icon(ic)); b.appendChild(el('span', 'pxrbl', lab)); b.onclick = fn; ra.appendChild(b); return b; };
     if (multi && choices.length) {
       const chosen = selectedVersion(it);
-      const slot = el('div', 'pxfeat');
       const pb = el('button', 'pxrb lab'); pb.type = 'button'; pb.appendChild(icon('play'));
       const lab = chosen ? ('Play · ' + (chosen.server || chosen.label || 'server')) : 'Play · choose server';
       pb.appendChild(el('span', 'pxrbl', lab));
       pb.title = lab; pb.setAttribute('aria-label', lab);
-      const menu = el('div', 'pxfeatmenu'); menu.hidden = true; menu.setAttribute('role', 'menu');
-      menu.appendChild(el('div', 'mh', 'Play from'));
-      choices.forEach(v => {
-        const b = el('button', null, choiceLabel(v) || 'Version'); b.type = 'button';
-        b.onclick = e => { e.stopPropagation(); menu.hidden = true; invoke('version_pick', { id: v.id }).catch(() => {}); it.playVersion = v.id; startTitlePlay(it, false); };
-        menu.appendChild(b);
-      });
-      const openMenu = e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; if (open) placeMenu(pb, menu); };
-      const chev = el('button', 'pxrb'); chev.type = 'button'; chev.title = 'Change server'; chev.setAttribute('aria-label', 'Change server');
-      chev.appendChild(el('span', 'pxglyph', '▾')); chev.onclick = openMenu;
-      pb.onclick = e => {
-        e.stopPropagation();
-        const pick = selectedVersion(it);
-        if (pick) { menu.hidden = true; it.playVersion = pick.id; startTitlePlay(it, false); return; }
-        openMenu(e);
-      };
-      document.addEventListener('click', e => { if (!slot.contains(e.target)) menu.hidden = true; });
-      slot.appendChild(pb); slot.appendChild(chev); slot.appendChild(menu); ra.appendChild(slot);
+      pb.onclick = () => { it.playVersion = pickedVersion(it); startTitlePlay(it, false); };
+      ra.appendChild(pb);
     } else { const b = rb('play', 'Play', () => startTitlePlay(it, false)); if (it.versionsPending) { b.title = 'Play · still checking other servers'; b.setAttribute('aria-label', b.title); } }
     const from = el('button', 'pxrb lab'); from.type = 'button'; from.appendChild(icon('rew')); from.appendChild(el('span', 'pxrbl', 'Play from start'));
     from.title = 'Play from start'; from.setAttribute('aria-label', 'Play from start');
