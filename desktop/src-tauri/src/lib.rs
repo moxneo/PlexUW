@@ -313,7 +313,7 @@ macro_rules! handlers { () => { tauri::generate_handler![
             commands::prefs_get, commands::prefs_set, commands::ai_key_set, commands::ai_key_has,
             commands::browse_home, commands::browse_section, commands::browse_section_hubs, commands::browse_facet,
             commands::browse_collections, commands::browse_collection, commands::browse_item, commands::version_pick, commands::browse_children, commands::browse_person, commands::browse_related,
-            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters,
+            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::playback_frame, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters,
             commands::account_me, commands::mark_watched, commands::watchlist_list, commands::watchlist_add, commands::watchlist_remove
         ] }; }
 #[cfg(feature = "mockplex")]
@@ -324,7 +324,7 @@ macro_rules! handlers { () => { tauri::generate_handler![
             commands::prefs_get, commands::prefs_set, commands::ai_key_set, commands::ai_key_has,
             commands::browse_home, commands::browse_section, commands::browse_section_hubs, commands::browse_facet,
             commands::browse_collections, commands::browse_collection, commands::browse_item, commands::version_pick, commands::browse_children, commands::browse_person, commands::browse_related,
-            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters, commands::shot_id,
+            commands::browse_search, commands::play_start, commands::opaque_get, commands::playback_stop, commands::playback_timeline, commands::playback_thumb, commands::playback_frame, commands::manual_confirm, commands::ai_migration_failed, commands::browse_letters, commands::shot_id,
             commands::account_me, commands::mark_watched, commands::watchlist_list, commands::watchlist_add, commands::watchlist_remove
         ] }; }
 

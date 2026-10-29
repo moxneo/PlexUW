@@ -321,7 +321,80 @@ async fn start_hls(p: &Plex, mid: &str, conn: &Conn, rk: u64, media_index: usize
     Ok(format!("/hls/{master_id}"))
 }
 
+/// End the hover transcode only. The playing session id is never this one.
+pub async fn scrub_stop(p: &Plex) {
+    let (mid, sid) = {
+        let mut c = p.timeline.lock().unwrap();
+        c.scrub_gen = c.scrub_gen.wrapping_add(1);
+        let sid = std::mem::take(&mut c.scrub_session);
+        (c.mid.clone(), sid)
+    };
+    if !sid.is_empty() && !mid.is_empty() {
+        stop_named_session(p, &mid, &sid).await;
+    }
+}
+
+async fn stop_named_session(p: &Plex, mid: &str, session: &str) {
+    if session.len() != 32 || !session.bytes().all(|b| b.is_ascii_hexdigit()) { return; }
+    let Ok(conn) = conn_for(p, mid) else { return; };
+    let path = format!("/video/:/transcode/universal/stop?session={session}");
+    let _ = fetch(p, mid, &conn, &path, "*/*", Duration::from_secs(8), 64 * 1024, None).await;
+}
+
+/// Separate low-res HLS session at `at_ms`. t=0 of the playlist is that movie time.
+/// Does not clear the playing session's opaque map.
+pub async fn scrub_open(p: &Arc<Plex>, at_ms: u64) -> Result<Option<PlayOut>, String> {
+    if at_ms > 48 * 60 * 60 * 1000 { return Ok(None); }
+    let (mid, rk, media_index, dur, prev, gen) = {
+        let mut c = p.timeline.lock().unwrap();
+        if c.rk == 0 || c.mid.is_empty() { return Ok(None); }
+        c.scrub_gen = c.scrub_gen.wrapping_add(1);
+        let gen = c.scrub_gen;
+        let prev = std::mem::take(&mut c.scrub_session);
+        (c.mid.clone(), c.rk, c.media_index, c.duration_ms, prev, gen)
+    };
+    if !prev.is_empty() { stop_named_session(p, &mid, &prev).await; }
+    let Ok(conn) = conn_for(p, &mid) else { return Ok(None) };
+    let off = offset_sec(at_ms, dur);
+    let opened = match start_scrub_hls(p, &mid, &conn, rk, media_index, off).await {
+        Ok(v) => v,
+        Err(e) => { play_note("scrub", 0, &e); return Ok(None); }
+    };
+    let drop_sid = {
+        let mut c = p.timeline.lock().unwrap();
+        if c.scrub_gen != gen { Some(opened.0) } else { c.scrub_session = opened.0; None }
+    };
+    if let Some(sid) = drop_sid {
+        stop_named_session(p, &mid, &sid).await;
+        return Ok(None);
+    }
+    Ok(Some(PlayOut { kind: "hls".into(), url: opened.1, duration_ms: 0 }))
+}
+
+async fn start_scrub_hls(p: &Plex, mid: &str, conn: &Conn, rk: u64, media_index: usize, off: u64) -> Result<(String, String), String> {
+    let platform = if cfg!(windows) { "Windows" } else if cfg!(target_os = "macos") { "macOS" } else { "Linux" };
+    let pair = play::build_hls_scrub_pair(rk, media_index, off, location(conn.kind), &p.egress.client_id, platform, env!("CARGO_PKG_VERSION"));
+    let dec = fetch(p, mid, conn, &pair.decision, "application/json", Duration::from_secs(20), DECISION_MAX, None).await?;
+    if let Some(code) = play::decision_failed(dec.status, &dec.body) { return Err(fail_status(code)); }
+    let start = fetch(p, mid, conn, &pair.start, "*/*", Duration::from_secs(20), PLAYLIST_MAX, None).await?;
+    if start.status != 200 || !play::looks_like_m3u8(&start.body) {
+        return Err(if start.status == 200 { "playback (502)".into() } else { fail_status(start.status) });
+    }
+    let mut slots = Vec::new();
+    let master_id = remember(&mut slots, mid, &pair.start);
+    let text = String::from_utf8_lossy(&start.body).into_owned();
+    let base = upstream_url(conn, &pair.start)?;
+    let rewritten = play::rewrite_m3u8(&text, &base, |u| remember(&mut slots, mid, u)).map_err(|_| "playback (rewrite)".to_string())?;
+    if let Some(s) = slots.iter_mut().find(|s| s.id == master_id) {
+        s.body = Some(rewritten.into_bytes());
+        s.content_type = "application/vnd.apple.mpegurl".into();
+    }
+    commit(p, mid, &slots);
+    Ok((pair.session, format!("/hls/{master_id}")))
+}
+
 pub async fn start(p: &Arc<Plex>, id: &str, version_id: Option<&str>, offset_ms: u64, subtitle_index: Option<u32>) -> Result<PlayOut, String> {
+    scrub_stop(p).await;
     p.hls.clear();
     let (mut mid, mut rk) = super::mx::item_target(p, id).map_err(|_| "playback".to_string())?;
     let mut media_index = 0usize;
@@ -342,11 +415,11 @@ pub async fn start(p: &Arc<Plex>, id: &str, version_id: Option<&str>, offset_ms:
     if sub_id.is_none() && play::webview_native(&chosen.container, &chosen.video, &chosen.audio) && part_ok(&chosen.part) && try_direct(p, &mid, &conn, &chosen.part).await.is_ok() {
         let id = play::opaque_id(&mid, &chosen.part);
         p.hls.insert(id.clone(), HlsEnt { mid: mid.clone(), upstream: chosen.part, body: None, content_type: "video/mp4".into() });
-        p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms);
+        p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms, chosen.media_index);
         return Ok(PlayOut { kind: "direct".into(), url: format!("/media/{id}"), duration_ms: chosen.duration_ms });
     }
     let url = start_hls(p, &mid, &conn, rk, chosen.media_index, off, sub_id).await?;
-    p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms);
+    p.arm_timeline(&mid, rk, chosen.duration_ms, offset_ms, chosen.media_index);
     Ok(PlayOut { kind: "hls".into(), url, duration_ms: chosen.duration_ms })
 }
 

@@ -30,14 +30,18 @@ pub use mx::HomeView;
 struct PlayClock {
     mid: String,
     rk: u64,
+    media_index: usize,
     duration_ms: u64,
     time_ms: u64,
     state: String,
     pending: bool,
+    /// Bumps when a newer hover or a stop wins, so a late transcode is dropped.
+    scrub_gen: u64,
+    scrub_session: String,
 }
 impl Default for PlayClock {
     fn default() -> Self {
-        Self { mid: String::new(), rk: 0, duration_ms: 0, time_ms: 0, state: "stopped".into(), pending: false }
+        Self { mid: String::new(), rk: 0, media_index: 0, duration_ms: 0, time_ms: 0, state: "stopped".into(), pending: false, scrub_gen: 0, scrub_session: String::new() }
     }
 }
 
@@ -117,11 +121,12 @@ impl Plex {
         let _ = std::fs::remove_dir_all(&self.cache_dir);
     }
     /// Remember which copy is playing so timeline posts stay on that server.
-    pub fn arm_timeline(&self, mid: &str, rk: u64, duration_ms: u64, time_ms: u64) {
+    pub fn arm_timeline(&self, mid: &str, rk: u64, duration_ms: u64, time_ms: u64, media_index: usize) {
         if rk == 0 || mid.is_empty() { return; }
         let mut c = self.timeline.lock().unwrap();
         c.mid = mid.to_string();
         c.rk = rk;
+        c.media_index = media_index;
         c.duration_ms = duration_ms;
         c.time_ms = if duration_ms > 0 { time_ms.min(duration_ms) } else { time_ms };
         c.state = "playing".into();
@@ -768,6 +773,8 @@ pub fn playback_stop(p: P<'_>) {
     }
     let flush = arc.clone();
     tauri::async_runtime::spawn(async move { let _ = flush_timeline(&flush).await; });
+    let scrub = arc.clone();
+    tauri::async_runtime::spawn(async move { play::scrub_stop(&scrub).await; });
     arc.hls.clear();
     arc.mx.drop_home_rows();
 }
@@ -793,6 +800,19 @@ pub async fn playback_timeline(p: P<'_>, state: String, time_ms: u64) -> Result<
         });
     }
     Ok(())
+}
+
+/// Low-res H.264 session whose t=0 is `at_ms`, for a scrub thumb. `stop` ends that
+/// session and does not touch the playing one. Metadata `/thumb/{ms}` is the poster
+/// or a chapter still when preview indexes are off, so it is not a frame source.
+#[tauri::command]
+pub async fn playback_frame(p: P<'_>, at_ms: u64, stop: bool) -> Result<Option<play::PlayOut>, String> {
+    let arc = p.inner().clone();
+    if stop {
+        play::scrub_stop(&arc).await;
+        return Ok(None);
+    }
+    play::scrub_open(&arc, at_ms).await
 }
 
 /// Opaque id for a PMS time thumb (`/library/metadata/{rk}/thumb/{ms}`). No host or token reaches JS.

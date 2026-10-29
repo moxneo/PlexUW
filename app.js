@@ -253,6 +253,8 @@ if(bCc){
 }
 function paintLiveChap(){
   if(!plexNow()||!cur.chapters||cur.chapters.length<2){seek.classList.remove('chaplive');return}
+  // A hover owns the tile. Repainting the chapter start here is what left 33:32 up at the playhead.
+  if(seek.matches(':hover'))return;
   const d=dur(); if(!(d>0))return;
   const f=(vid.currentTime||0)/d,k=chapAt(f);
   if(k===seek._chapK)return; seek._chapK=k;
@@ -260,7 +262,7 @@ function paintLiveChap(){
   thumb.style.left=Math.max(80,Math.min((r.width||0)-80,(c.at||f)*(r.width||0)))+'px';
   thumb.dataset.k=k;
   $('#thumbt').innerHTML=`<b>${k+1}. ${esc(c.t||'')}</b><span>${fmt((c.at||0)*d)}</span>`;
-  if(!seek.matches(':hover')){const cvs=$('#thumbimg'); if(cvs&&vid.videoWidth){try{cvs.getContext('2d').drawImage(vid,0,0,cvs.width,cvs.height)}catch(err){}}}
+  const cvs=$('#thumbimg'); if(cvs&&vid.videoWidth){try{cvs.getContext('2d').drawImage(vid,0,0,cvs.width,cvs.height)}catch(err){}}
   seek.classList.add('chaplive');
 }
 vid.ontimeupdate=()=>{const d=dur(),p=d>0?vid.currentTime/d*100:0;$('#prog').style.width=`calc((100% - 4px) * ${p/100})`;$('#knob').style.left=`calc(2px + (100% - 4px) * ${p/100})`;$('#tcur').textContent=hms(vid.currentTime||0);paintDur();paintLiveChap();if(mode==='smart')sampleSmart()};
@@ -268,13 +270,12 @@ vid.onseeked=vid.onloadedmetadata=()=>{vid.ontimeupdate();applyStretch();sampleA
 const seek=$('#seek');
 const chapAt=f=>{let k=0;cur.chapters.forEach((c,i)=>{if(f>=c.at)k=i});return k};
 let hovF=0;
-seek.onmousemove=e=>{const r=seek.getBoundingClientRect(),f=hovF=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),d=dur();
-  if(e.target.closest('#thumb'))return;
-  const ti=e.target.closest('#chaps i'),k=ti?+ti.dataset.k:chapAt(f),c=cur.chapters[k]||cur.chapters[0]||{t:'',at:0};
+seek.onmousemove=e=>{const r=seek.getBoundingClientRect(),f=hovF=Math.max(0,Math.min(1,(e.clientX-r.left)/(r.width||1))),d=dur();
+  const k=chapAt(f),c=cur.chapters[k]||cur.chapters[0]||{t:'',at:0};
   $('#thumb').style.left=Math.max(80,Math.min(r.width-80,f*r.width))+'px';$('#thumb').dataset.k=k;
-  const frame=(ti?c.at:f)*(d||0),cvs=$('#thumbimg');
+  const frame=f*(d||0),cvs=$('#thumbimg');
   if(cvs&&typeof window.__pxScrubTo==='function')window.__pxScrubTo(frame,cvs);
-  $('#thumbt').innerHTML=`<b>${k+1}. ${esc(c.t)}</b><span>${fmt((ti?c.at:f)*d)}</span>`};
+  $('#thumbt').innerHTML=`<b>${k+1}. ${esc(c.t)}</b><span>${fmt(frame)}</span>`};
 seek.addEventListener('mouseleave',()=>{if(typeof window.__pxScrubStop==='function')window.__pxScrubStop()});
 seek.onclick=e=>{const d=dur(),ti=e.target.closest('#chaps i'),th=e.target.closest('#thumb');
   if(ti||th){const k=+(ti||th).dataset.k;vid.currentTime=cur.chapters[k].at*d;toast(`Chapter ${k+1}: ${cur.chapters[k].t}`);}

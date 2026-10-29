@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-playback-frame"
+description = "Enables the playback_frame command without any pre-configured scope."
+commands.allow = ["playback_frame"]
+
+[[permission]]
+identifier = "deny-playback-frame"
+description = "Denies the playback_frame command without any pre-configured scope."
+commands.deny = ["playback_frame"]

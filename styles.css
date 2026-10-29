@@ -548,8 +548,8 @@ body.navc nav .navh{font-size:0!important;overflow:hidden;color:transparent}
 #stage #bar .cb,#stage #topctl .tb{color:var(--px-ink);border-radius:999px}
 #stage #bar .cb:hover,#stage #topctl .tb:hover{background:rgba(255,255,255,.12);color:#fff}
 #stage #bar .cb.on,#stage #topctl .tb.on{color:#fff}
-#stage #bar .playbtn,#stage #bar .playbtn.paused{background:rgba(255,255,255,.92);color:#141416;border-radius:999px;border:1px solid rgba(255,255,255,.4);box-shadow:inset 0 1px 0 rgba(255,255,255,.65)}
-#stage #bar .playbtn:hover,#stage #bar .playbtn.paused:hover{background:#fff}
+#stage #bar .playbtn,#stage #bar .playbtn.paused{width:2rem;height:1.75rem;margin:0;background:transparent;color:var(--px-ink);border-radius:999px;border:0;box-shadow:none}
+#stage #bar .playbtn:hover,#stage #bar .playbtn.paused:hover{background:rgba(255,255,255,.12);color:#fff}
 #stage #bar #seek{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.28)}
 #stage #bar #seek:hover #prog,#stage #bar #prog{background:#fff}
 #stage #bar #knob{background:#fff;box-shadow:0 0 0 1px rgba(16,17,20,.35)}
@@ -560,7 +560,7 @@ body.navc nav .navh{font-size:0!important;overflow:hidden;color:transparent}
   border:var(--px-glass-line);box-shadow:var(--px-glass-shadow);
   width:186px;margin-left:-93px;padding:6px;
 }
-#thumbimg{width:172px;height:97px;display:block;background:rgba(255,255,255,.12);border-radius:8px;border:1px solid rgba(255,255,255,.22)}
+#thumbimg{position:relative;z-index:1;width:172px;height:97px;display:block;background:rgba(255,255,255,.12);border-radius:8px;border:1px solid rgba(255,255,255,.22)}
 #thumb:hover{border-color:rgba(255,255,255,.45)}
 #seek #chaps i{width:.45rem;height:.45rem;top:50%;bottom:auto;margin-top:-.225rem;margin-left:-.225rem;border-radius:999px;background:rgba(255,255,255,.78);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 0 1px rgba(16,17,20,.4)}
 #seek #chaps i:hover,#chaps i:hover{background:#fff}

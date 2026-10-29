@@ -9,7 +9,7 @@
     "allow-source-get", "allow-auth-start", "allow-auth-cancel", "allow-servers-list", "allow-server-connect", "allow-manual-probe",
     "allow-sign-out", "allow-prefs-get", "allow-prefs-set", "allow-ai-key-set", "allow-ai-key-has",
     "allow-browse-home", "allow-browse-section", "allow-browse-section-hubs", "allow-browse-facet", "allow-browse-collections",
-    "allow-browse-collection", "allow-browse-item", "allow-browse-children", "allow-browse-search", "allow-play-start", "allow-opaque-get", "allow-playback-stop", "allow-playback-timeline", "allow-playback-thumb", "allow-manual-confirm", "allow-ai-migration-failed", "allow-browse-letters", "allow-version-pick", "allow-browse-person", "allow-browse-related",
+    "allow-browse-collection", "allow-browse-item", "allow-browse-children", "allow-browse-search", "allow-play-start", "allow-opaque-get", "allow-playback-stop", "allow-playback-timeline", "allow-playback-thumb", "allow-playback-frame", "allow-manual-confirm", "allow-ai-migration-failed", "allow-browse-letters", "allow-version-pick", "allow-browse-person", "allow-browse-related",
     "allow-account-me", "allow-mark-watched",
     "allow-watchlist-list", "allow-watchlist-add", "allow-watchlist-remove"
   ]

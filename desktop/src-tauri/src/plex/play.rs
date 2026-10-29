@@ -191,6 +191,9 @@ pub fn query_ok(path: &str, query: Option<&str>) -> bool {
         return false;
     }
     if q.is_empty() {
+        if path == "/video/:/transcode/universal/stop" {
+            return false;
+        }
         return !path.ends_with("/decision") && !path.ends_with("start.m3u8");
     }
     let pairs: Vec<(String, String)> = url::form_urlencoded::parse(q.as_bytes()).into_owned().collect();
@@ -210,6 +213,10 @@ pub fn query_ok(path: &str, query: Option<&str>) -> bool {
             }
         }
     }
+    // Scrub sessions are stopped by id only. No other playback query rides this path.
+    if path == "/video/:/transcode/universal/stop" {
+        return pairs.len() == 1 && pairs[0].0 == "session";
+    }
     true
 }
 
@@ -217,7 +224,10 @@ pub fn path_shape_ok(path: &str) -> bool {
     if path.contains("..") || path.contains('\\') || path.contains("//") {
         return false;
     }
-    if path == "/video/:/transcode/universal/decision" || path == "/video/:/transcode/universal/start.m3u8" {
+    if path == "/video/:/transcode/universal/decision"
+        || path == "/video/:/transcode/universal/start.m3u8"
+        || path == "/video/:/transcode/universal/stop"
+    {
         return true;
     }
     if let Some(rest) = path.strip_prefix("/video/:/transcode/universal/session/") {
@@ -282,8 +292,21 @@ pub fn playback_profile_headers() -> [(&'static str, &'static str); 2] {
 /// rejects that combination on an HLS decision. The WebView is not mpv, so
 /// the target is 1080p / 20 Mbps even when the source is HEVC.
 pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>) -> String {
+    hls_query(meta_path, session, media_index, offset_sec, location, client_id, platform, version, subtitle_stream, false)
+}
+
+/// One short H.264 session whose t=0 is `offset_sec`. Small frame so a hover
+/// thumb does not start a second 1080p transcode beside playback.
+pub fn build_hls_scrub_query(meta_path: &str, session: &str, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str) -> String {
+    hls_query(meta_path, session, media_index, offset_sec, location, client_id, platform, version, None, true)
+}
+
+fn hls_query(meta_path: &str, session: &str, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>, scrub: bool) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
     let burn = subtitle_stream.map(|id| id.to_string());
+    let quality = if scrub { "60" } else { "100" };
+    let bitrate = if scrub { "1200" } else { "20000" };
+    let resolution = if scrub { "426x240" } else { "1920x1080" };
     let pairs = [
         ("hasMDE", "1"),
         ("path", meta_path),
@@ -301,9 +324,9 @@ pub fn build_hls_universal_query(meta_path: &str, session: &str, media_index: us
         ("subtitles", if burn.is_some() { "burn" } else { "none" }),
         ("autoAdjustQuality", "0"),
         ("mediaBufferSize", "102400"),
-        ("videoQuality", "100"),
-        ("maxVideoBitrate", "20000"),
-        ("videoResolution", "1920x1080"),
+        ("videoQuality", quality),
+        ("maxVideoBitrate", bitrate),
+        ("videoResolution", resolution),
         ("videoCodec", "h264"),
         ("audioCodec", "aac"),
         ("offset", &offset_sec.to_string()),
@@ -333,8 +356,20 @@ pub struct HlsPair {
 }
 
 pub fn build_hls_pair(rating_key: u64, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>) -> HlsPair {
+    hls_pair(rating_key, media_index, offset_sec, location, client_id, platform, version, subtitle_stream, false)
+}
+
+pub fn build_hls_scrub_pair(rating_key: u64, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str) -> HlsPair {
+    hls_pair(rating_key, media_index, offset_sec, location, client_id, platform, version, None, true)
+}
+
+fn hls_pair(rating_key: u64, media_index: usize, offset_sec: u64, location: &str, client_id: &str, platform: &str, version: &str, subtitle_stream: Option<u64>, scrub: bool) -> HlsPair {
     let session = uuid::Uuid::new_v4().simple().to_string();
-    let q = build_hls_universal_query(&format!("/library/metadata/{rating_key}"), &session, media_index, offset_sec, location, client_id, platform, version, subtitle_stream);
+    let q = if scrub {
+        build_hls_scrub_query(&format!("/library/metadata/{rating_key}"), &session, media_index, offset_sec, location, client_id, platform, version)
+    } else {
+        build_hls_universal_query(&format!("/library/metadata/{rating_key}"), &session, media_index, offset_sec, location, client_id, platform, version, subtitle_stream)
+    };
     HlsPair {
         session,
         decision: format!("/video/:/transcode/universal/decision?{q}"),
@@ -536,6 +571,13 @@ mod t {
         assert!(playback_path_ok("/library/parts/77/file.mp4", None));
         assert!(playback_path_ok("/video/:/transcode/universal/session/abcdef0123456789/0/00000.ts", None));
         assert!(!path_shape_ok("/video/:/transcode/universal/session/abc/0/../../x.ts"));
+        let scrub = build_hls_scrub_query("/library/metadata/42", &"ab".repeat(16), 1, 1170, "lan", "11111111-1111-4111-8111-111111111111", "Linux", "0.1.0");
+        assert!(scrub.contains("videoResolution=426x240") && scrub.contains("maxVideoBitrate=1200") && scrub.contains("offset=1170") && scrub.contains("subtitles=none"), "{scrub}");
+        assert!(!scrub.contains("1920x1080") && !scrub.contains("subtitleStreamID"), "{scrub}");
+        assert!(playback_path_ok("/video/:/transcode/universal/start.m3u8", Some(&scrub)), "{scrub}");
+        assert!(playback_path_ok("/video/:/transcode/universal/stop", Some("session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
+        assert!(!playback_path_ok("/video/:/transcode/universal/stop", Some("session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=/library/metadata/1")));
+        assert!(!playback_path_ok("/video/:/transcode/universal/stop", None));
     }
 
     #[test]

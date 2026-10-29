@@ -295,7 +295,7 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
   // come back through opaque_get. A failure clears the video element.
   function b64ToU8(s){const bin=atob(s||'');const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
   let hlsPlayer=null, plexLive=false, tlTimer=0;
-  let scrubVid=null,scrubHls=null,scrubAbs='',scrubTimer=0,scrubGen=0;
+  let scrubVid=null,scrubHls=null,scrubAbs='',scrubTimer=0,scrubGive=0,scrubGen=0;
   const scrubCache=new Map();
   function pushVol(v){
     if(!v||typeof window.__pxReadVol!=='function')return;
@@ -304,53 +304,193 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     v.muted=n<=0;v.volume=Math.max(0,Math.min(1,n));
   }
   function killScrub(){
-    clearTimeout(scrubTimer);
+    clearTimeout(scrubTimer);clearTimeout(scrubGive);
     if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
     if(scrubVid){try{scrubVid.pause();scrubVid.removeAttribute('src');scrubVid.load();scrubVid.remove()}catch(e){}scrubVid=null}
-    scrubAbs='';window.__pxPlayAbs='';window.__pxPlayKind='';
+    scrubAbs='';scrubCache.clear();window.__pxPlayAbs='';window.__pxPlayKind='';
+    const cvs=document.getElementById('thumbimg');if(cvs)clearThumb(cvs);
   }
   function drawOnto(canvas,src){try{const x=canvas.getContext('2d');if(x&&src)x.drawImage(src,0,0,canvas.width,canvas.height)}catch(e){}}
+  function clearThumb(canvas){try{const x=canvas.getContext('2d');if(x)x.clearRect(0,0,canvas.width,canvas.height)}catch(e){}}
+  function scrubBucket(sec){return Math.max(0,Math.round(sec/2))}
   function rememberScrub(bucket,canvas){
     try{
       let c=scrubCache.get(bucket);
-      if(!c){c=document.createElement('canvas');scrubCache.set(bucket,c);if(scrubCache.size>24)scrubCache.delete(scrubCache.keys().next().value)}
+      if(!c){c=document.createElement('canvas');scrubCache.set(bucket,c);if(scrubCache.size>48)scrubCache.delete(scrubCache.keys().next().value)}
       c.width=canvas.width;c.height=canvas.height;c.getContext('2d').drawImage(canvas,0,0);
     }catch(e){}
   }
-  function scrubDraw(sec,canvas){
-    const abs=window.__pxPlayAbs,kind=window.__pxPlayKind;
-    if(!abs||!canvas||typeof sec!=='number'||!isFinite(sec))return;
-    if(!scrubVid||scrubAbs!==abs){
-      if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
-      if(scrubVid){try{scrubVid.remove()}catch(e){}}
-      const el=document.createElement('video');
-      el.muted=true;el.defaultMuted=true;el.volume=0;el.playsInline=true;el.setAttribute('playsinline','');el.preload='auto';el.setAttribute('aria-hidden','true');
-      el.style.cssText='position:fixed;left:-9999px;width:320px;height:180px;opacity:0;pointer-events:none';
-      document.body.appendChild(el);scrubVid=el;scrubAbs=abs;
-      if(kind==='hls'&&Hls.isSupported()){
-        scrubHls=new Hls({enableWorker:false,loader:PlexLoader,maxBufferLength:2,maxMaxBufferLength:4,capLevelToPlayerSize:true});
-        scrubHls.loadSource(abs);scrubHls.attachMedia(el);
-      }else if(kind!=='hls')el.src=abs;
+  function restScrub(){if(scrubVid)scrubVid.style.opacity='.02'}
+  function scrubSpan(v){
+    let end=0,start=1e9,n=0,far=false;
+    const see=(a,z)=>{n++;if(a<start)start=a;if(a>1)far=true;if(z>end)end=z};
+    const s=v.seekable;if(s&&s.length)see(s.start(0),s.end(s.length-1));
+    const b=v.buffered;if(b&&b.length)for(let i=0;i<b.length;i++)see(b.start(i),b.end(i));
+    return {n:n,start:n?start:0,end:end,far:far};
+  }
+  // Media time that corresponds to movieSec. A range that opens past t=1 is the
+  // file clock (seek to the hover). A 0-based window whose sequence sits on an
+  // earlier chapter wants the delta. Otherwise t=0 is already the hover.
+  function scrubWant(v,movieSec){
+    const sp=scrubSpan(v),dur=v.duration;
+    const file=v.__pxKind!=='hls'&&Number.isFinite(dur)&&dur>movieSec+0.5;
+    if(file||sp.far||!(movieSec>1))return Math.max(0,movieSec);
+    const win=typeof v.__pxWin==='number'?v.__pxWin:0;
+    if(win>15&&movieSec>win+15)return movieSec-win;
+    return 0.25;
+  }
+  function scrubHold(v,movieSec){
+    if(!v||!v.videoWidth||!(movieSec>=0))return false;
+    const t=v.currentTime||0,b=v.buffered;
+    if(!b||!b.length)return false;
+    let start=-1,end=0,far=false;
+    for(let i=0;i<b.length;i++){
+      const a=b.start(i),z=b.end(i);
+      if(z>end)end=z;
+      if(a>1)far=true;
+      if(t>=a-0.05&&t<=z+0.35)start=a;
     }
-    const v=scrubVid,gen=++scrubGen;
-    const draw=()=>{if(gen!==scrubGen||!v.videoWidth)return;drawOnto(canvas,v);rememberScrub(Math.max(0,Math.round(sec/10)),canvas)};
-    const go=()=>{if(gen!==scrubGen)return;const on=()=>{v.removeEventListener('seeked',on);draw()};v.addEventListener('seeked',on);try{if(scrubHls&&scrubHls.startLoad)scrubHls.startLoad(Math.max(0,sec));v.currentTime=Math.max(0,sec)}catch(e){}};
-    if(v.readyState>=1)go();else v.addEventListener('loadedmetadata',()=>go(),{once:true});
+    if(start<0)return false;
+    const want=scrubWant(v,movieSec);
+    if(want>1||far)return Math.abs(t-want)<=2.5;
+    if(end<1||t<start+0.12)return false;
+    return end<30;
+  }
+  function scrubAim(v,movieSec){
+    const want=scrubWant(v,movieSec),t=v.currentTime||0;
+    if(Math.abs(t-want)<=2.5&&!(want<1&&t<0.12))return -1;
+    if(want<1&&!scrubSpan(v).n)return -1;
+    return want;
+  }
+  // videoWidth is set by the init segment, before a frame exists. A second
+  // MediaSource at that point closes the playing one (mediaSourceRequiresReset).
+  function scrubCanOpen(main){
+    return !!(main&&main.__pxFrame&&main.__pxMsRetry!=='busy'&&!main.__pxHoldScrub);
+  }
+  // Under the thumb, not off-screen. WebView2 does not decode a frame at opacity 0 or left -9999px.
+  // Stay at .02: opacity 1 paints the session's opening still (chapter card or black) over the canvas.
+  function mountScrub(abs,kind){
+    const main=document.getElementById('vid');
+    if(!scrubCanOpen(main))return;
+    if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
+    if(scrubVid){try{scrubVid.pause();scrubVid.removeAttribute('src');scrubVid.load();scrubVid.remove()}catch(e){}}
+    const el=document.createElement('video');
+    el.muted=true;el.defaultMuted=true;el.volume=0;el.playsInline=true;el.setAttribute('playsinline','');el.setAttribute('muted','');el.preload='auto';el.setAttribute('aria-hidden','true');
+    el.style.cssText='position:absolute;left:6px;top:6px;width:172px;height:97px;opacity:.02;object-fit:cover;pointer-events:none;z-index:2';
+    const host=document.getElementById('thumb');
+    if(host)host.insertBefore(el,host.firstChild);else document.body.appendChild(el);
+    el.__pxKind=kind||'';scrubVid=el;scrubAbs=abs;
+    if(kind==='hls'&&Hls.isSupported()){
+      scrubHls=new Hls({enableWorker:false,loader:PlexLoader,maxBufferLength:2,maxMaxBufferLength:4,capLevelToPlayerSize:true,startPosition:-1});
+      scrubHls.on(Hls.Events.LEVEL_LOADED,function(_ev,data){
+        const d=data&&data.details;if(!d)return;
+        const td=d.targetduration||5,sn=typeof d.startSN==='number'?d.startSN:0,fr=d.fragments&&d.fragments[0];
+        const fst=fr&&typeof fr.start==='number'?fr.start:0;
+        el.__pxWin=sn*td+fst;
+      });
+      scrubHls.loadSource(abs);scrubHls.attachMedia(el);
+    }else if(kind!=='hls')el.src=abs;
+  }
+  function keepMain(){
+    const main=document.getElementById('vid');
+    if(!main||main.paused)return function(){};
+    return function(){if(main.paused)main.play().catch(function(){})};
+  }
+  function scrubDraw(movieSec,canvas,abs,kind){
+    abs=abs||window.__pxPlayAbs;kind=kind||window.__pxPlayKind;
+    if(!abs||!canvas||!(movieSec>=0))return;
+    if(!scrubVid||scrubAbs!==abs)mountScrub(abs,kind);
+    if(!scrubVid)return;
+    const v=scrubVid,gen=++scrubGen,bucket=scrubBucket(movieSec),resume=keepMain();
+    const drawFixed=()=>{
+      if(!scrubHold(v,movieSec))return false;
+      try{
+        let c=scrubCache.get(bucket);
+        if(!c){c=document.createElement('canvas');scrubCache.set(bucket,c);if(scrubCache.size>48)scrubCache.delete(scrubCache.keys().next().value)}
+        c.width=canvas.width;c.height=canvas.height;c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+        if(gen===scrubGen){drawOnto(canvas,c);restScrub()}
+      }catch(e){return false}
+      if(gen!==scrubGen)return true;
+      try{v.pause()}catch(e){}
+      if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}
+      resume();
+      return true;
+    };
+    const go=()=>{
+      if(gen!==scrubGen)return;
+      clearTimeout(scrubGive);
+      scrubGive=setTimeout(function(){if(gen!==scrubGen)return;v.removeEventListener('seeked',on);v.removeEventListener('timeupdate',on);if(!drawFixed()){clearThumb(canvas);try{v.pause()}catch(e){}if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}}},8000);
+      const on=()=>{
+        if(gen!==scrubGen)return;
+        const aim=scrubAim(v,movieSec);
+        if(aim>=0){
+          // Stamp the wanted time only. Including the buffer end re-seeks on every
+          // append, and that second SourceBuffer abort closes the playing one.
+          const stamp=String(Math.round(aim*10)/10);
+          if(v.__pxSeek!==stamp){
+            v.__pxSeek=stamp;clearThumb(canvas);
+            if(scrubHls&&scrubHls.startLoad&&aim>1&&v.__pxLoad!==aim){v.__pxLoad=aim;try{scrubHls.startLoad(aim)}catch(e){}}
+            try{if(Math.abs((v.currentTime||0)-aim)>0.4)v.currentTime=aim}catch(e){}
+          }
+          if(Math.abs((v.currentTime||0)-aim)>0.4)return;
+        }
+        if(!drawFixed())return;
+        clearTimeout(scrubGive);
+        v.removeEventListener('seeked',on);v.removeEventListener('timeupdate',on);
+        if(typeof v.requestVideoFrameCallback==='function')v.requestVideoFrameCallback(function(){if(gen===scrubGen)drawFixed()});
+      };
+      v.addEventListener('seeked',on);v.addEventListener('timeupdate',on);
+      try{
+        if(scrubHls&&scrubHls.startLoad&&v.__pxBoot!==1){v.__pxBoot=1;scrubHls.startLoad(-1)}
+        on();
+        if(gen!==scrubGen)return;
+        const p=v.play();if(p&&p.catch)p.catch(function(){});
+        resume();
+      }catch(e){}
+    };
+    if(v.readyState>=1)go();else v.addEventListener('loadedmetadata',function(){go()},{once:true});
+  }
+  function scrubAt(sec,canvas,gen){
+    const kind=window.__pxPlayKind||'';
+    if(kind!=='hls'){scrubDraw(sec,canvas);return}
+    invoke('playback_frame',{atMs:Math.max(0,Math.round(sec*1000)),stop:false}).then(function(out){
+      if(gen!==scrubGen||!out||typeof out.url!=='string'||out.url.indexOf('/hls/')!==0)return;
+      scrubDraw(sec,canvas,plexOrigin()+out.url,out.kind||'hls');
+    }).catch(function(){});
+  }
+  function dropScrub(){
+    clearTimeout(scrubTimer);clearTimeout(scrubGive);scrubGen++;
+    if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}
+    if(scrubVid){try{scrubVid.pause()}catch(e){}}
+    restScrub();
+  }
+  // Drop the preview decoder without forgetting the playing URL. A live second
+  // MediaSource is what the reset below is trying to get away from.
+  function unstickScrub(){
+    clearTimeout(scrubTimer);clearTimeout(scrubGive);scrubGen++;
+    if(scrubHls){try{scrubHls.destroy()}catch(e){}scrubHls=null}
+    if(scrubVid){try{scrubVid.pause();scrubVid.removeAttribute('src');scrubVid.load();scrubVid.remove()}catch(e){}scrubVid=null}
+    scrubAbs='';
   }
   function scrubNow(sec,canvas){
     const main=document.getElementById('vid');
-    const bucket=Math.max(0,Math.round(sec/10));
-    if(main&&main.videoWidth&&Math.abs((main.currentTime||0)-sec)<1.5){drawOnto(canvas,main);rememberScrub(bucket,canvas);return}
-    const hit=scrubCache.get(bucket); if(hit)drawOnto(canvas,hit);
+    // Hover before the first playing frame must not build a preview MediaSource.
+    // Queuing that open for loadeddata/playing raced the first append and closed it.
+    if(!scrubCanOpen(main))return;
+    const bucket=scrubBucket(sec);
+    if(main.videoWidth&&Math.abs((main.currentTime||0)-sec)<0.45){drawOnto(canvas,main);rememberScrub(bucket,canvas);restScrub();dropScrub();return}
+    const hit=scrubCache.get(bucket);if(hit){drawOnto(canvas,hit);restScrub();dropScrub();return}
+    clearThumb(canvas);
     const gen=++scrubGen;
-    invoke('playback_thumb',{atMs:Math.max(0,Math.round(sec*1000))}).then(id=>{
-      if(gen!==scrubGen||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return;
-      const im=new Image(); im.onload=()=>{if(gen!==scrubGen)return;drawOnto(canvas,im);rememberScrub(bucket,canvas)}; im.src=img(id,320,180);
-    }).catch(function(){});
-    clearTimeout(scrubTimer); scrubTimer=setTimeout(()=>{if(gen===scrubGen)scrubDraw(sec,canvas)},280);
+    clearTimeout(scrubTimer);scrubTimer=setTimeout(function(){if(gen===scrubGen)scrubAt(sec,canvas,gen)},160);
   }
   window.__pxScrubTo=(sec,canvas)=>{if(!canvas||typeof sec!=='number'||!isFinite(sec))return;scrubNow(sec,canvas)};
-  window.__pxScrubStop=()=>{clearTimeout(scrubTimer);if(scrubHls){try{scrubHls.stopLoad()}catch(e){}}};
+  window.__pxScrubStop=()=>{
+    dropScrub();
+    const cvs=document.getElementById('thumbimg'),main=document.getElementById('vid');
+    if(cvs&&main&&main.videoWidth)drawOnto(cvs,main);
+    invoke('playback_frame',{atMs:0,stop:true}).catch(function(){});
+  };
   window.__pxFlushStop=function(){
     if(!plexLive)return Promise.resolve();
     const v=document.getElementById('vid');
@@ -392,6 +532,14 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     }
   }
   function onVidErr(){const v=document.getElementById('vid');const c=v&&v.error&&v.error.code;const name={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'}[c]||'MEDIA_ERR';showPlayErr('Could not start playback ('+name+(c!=null?' '+c:'')+')');clearVid()}
+  // hls.js flags this detail with ResetMediaSource (16), calls recoverMediaError,
+  // then stopLoad because a single variant cannot switch. A second recover closes
+  // the fresh MediaSource and the toast is that close. Resume the load instead.
+  function resumePlaySource(hls,data){
+    const flags=data&&data.errorAction&&data.errorAction.flags||0;
+    if((flags&16)===0){try{hls.recoverMediaError()}catch(e){}}
+    try{hls.startLoad(-1)}catch(e){}
+  }
   async function beginPlexPlay(){
     if(String(location.hash||'').indexOf('#player/plex')!==0)return;
     clearInterval(tlTimer);
@@ -405,18 +553,34 @@ const TAURI = window.__TAURI_INTERNALS__ ? { core: { invoke: tInvoke }, event: {
     const v=document.getElementById('vid');if(!v||!out||!out.url){showPlayErr('Could not start playback');return}
     const abs=plexOrigin()+out.url;
     window.__pxPlayAbs=abs;window.__pxPlayKind=out.kind||'';
+    v.__pxMsRetry=0;v.__pxMsN=0;v.__pxHoldScrub=0;v.__pxFrame=0;
     v.onerror=onVidErr;
     v.addEventListener('ended',function(){if(PB&&PB.onPlaybackEnd)PB.onPlaybackEnd()},{once:true});
-    v.addEventListener('playing',function(){pushVol(v);sendTl('playing')},{once:true});
+    v.addEventListener('playing',function(){v.__pxFrame=1;pushVol(v);sendTl('playing')},{once:true});
     pushVol(v);
     hookTl(v);
     const cc=document.getElementById('bCc'); if(cc)cc.classList.toggle('on',sub!=null);
     if(out.kind==='hls'){
       if(Hls.isSupported()){
-        hlsPlayer=new Hls({enableWorker:false,loader:PlexLoader});
-        hlsPlayer.on(Hls.Events.ERROR,function(_ev,data){if(!data||!data.fatal)return;const code=data.response&&data.response.code;console.error('plexuw play: step=hls fatal type='+(data.type||'')+' details='+(data.details||'')+' code='+(code==null?'':code));showPlayErr('Could not start playback '+(code?'('+code+')':(data.details?'('+data.details+')':'')));clearVid()});
-        hlsPlayer.loadSource(abs);hlsPlayer.attachMedia(v);
-        hlsPlayer.on(Hls.Events.MANIFEST_PARSED,function(){pushVol(v);v.play().catch(function(){})});
+        const hls=hlsPlayer=new Hls({enableWorker:false,loader:PlexLoader});
+        hls.on(Hls.Events.ERROR,function(_ev,data){
+          if(!data||!data.fatal)return;
+          if(data.details==='mediaSourceRequiresReset'){
+            if(v.__pxMsRetry==='busy')return;
+            const n=v.__pxMsN|0;
+            if(n>=3)return;
+            v.__pxMsRetry='busy';v.__pxMsN=n+1;v.__pxHoldScrub=1;unstickScrub();
+            console.error('plexuw play: step=hls reset');
+            resumePlaySource(hls,data);
+            v.__pxMsRetry=0;
+            v.addEventListener('playing',function(){v.__pxMsN=0;v.__pxHoldScrub=0;v.__pxFrame=1},{once:true});
+            const p=v.play();if(p&&p.catch)p.catch(function(){});
+            return;
+          }
+          const code=data.response&&data.response.code;console.error('plexuw play: step=hls fatal type='+(data.type||'')+' details='+(data.details||'')+' code='+(code==null?'':code));showPlayErr('Could not start playback '+(code?'('+code+')':(data.details?'('+data.details+')':'')));clearVid()
+        });
+        hls.loadSource(abs);hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED,function(){pushVol(v);v.play().catch(function(){})});
       }else{console.error('plexuw play: step=mse Hls.isSupported=false');showPlayErr('Could not start playback (mse)');clearVid()}
     }else{
       const off=(ctx.fromStart?0:(ctx.viewOffsetMs||0))/1000;
